@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    {
+      "id": "site_myap", "order": 1, "enabled": true,
+      "url": "https://myap.collegeboard.org/",
+      "name": { "zh": "My AP", "en": "My AP" },
+      "description": {
+        "zh": "AP 学生账号入口：加入班级、报名考试、查看成绩",
+        "en": "Your AP student account: join class sections, register for exams, view scores"
+      },
+      "logo": null
+    },
+    {
+      "id": "site_khan", "order": 2, "enabled": true,
+      "url": "https://www.khanacademy.org/",
+      "name": { "zh": "Khan Academy", "en": "Khan Academy" },
+      "description": { "zh": "免费视频课程与练习", "en": "Free video lessons and practice" },
+      "logo": null
+    },
+    {
+      "id": "site_gclassroom", "order": 3, "enabled": true,
+      "url": "https://classroom.google.com/",
+      "name": { "zh": "Google Classroom", "en": "Google Classroom" },
+      "description": {
+        "zh": "老师布置作业和课程资料（需班级邀请或班级代码）",
+        "en": "Where teachers share assignments and materials (class invite or code required)"
+      },
+      "logo": null
+    }
+  ]
+}

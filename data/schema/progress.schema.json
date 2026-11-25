@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "progress.schema.json",
+  "title": "Progress",
+  "type": "object",
+  "required": ["schemaVersion", "studentId", "course", "currentUnit", "percent"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "studentId": { "type": "string", "pattern": "^stu_[a-z0-9_]+$" },
+    "course": {
+      "type": "object", "required": ["id", "name"], "additionalProperties": false,
+      "properties": { "id": { "type": "string", "pattern": "^crs_[a-z0-9_]+$" }, "name": { "$ref": "#/$defs/localized" } }
+    },
+    "currentUnit": {
+      "type": "object", "required": ["id", "number", "name"], "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^unit_[a-z0-9_]+$" },
+        "number": { "type": "integer", "minimum": 1 },
+        "name": { "$ref": "#/$defs/localized" }
+      }
+    },
+    "percent": { "type": "integer", "minimum": 0, "maximum": 100 }
+  },
+  "$defs": { "localized": { "type": "object", "required": ["zh","en"], "additionalProperties": false, "properties": { "zh": {"type":"string","minLength":1}, "en": {"type":"string","minLength":1} } } }
+}

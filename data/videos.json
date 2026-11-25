@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    {
+      "id": "vid_1",
+      "order": 1,
+      "enabled": true,
+      "provider": "youtube",
+      "videoId": "gjswMPTXYk4",
+      "title": {
+        "zh": "The Ultimate AP Biology Unit 1 Review (Score a 5 on the Exam!)",
+        "en": "The Ultimate AP Biology Unit 1 Review (Score a 5 on the Exam!)"
+      }
+    },
+    {
+      "id": "vid_2",
+      "order": 2,
+      "enabled": true,
+      "provider": "youtube",
+      "videoId": "t21f03JfGPk",
+      "title": {
+        "zh": "1.1 Structure of Water and Hydrogen Bonding - AP Biology (Updated 2025-2026)",
+        "en": "1.1 Structure of Water and Hydrogen Bonding - AP Biology (Updated 2025-2026)"
+      }
+    },
+    {
+      "id": "vid_3",
+      "order": 3,
+      "enabled": true,
+      "provider": "youtube",
+      "videoId": "KSAPc5NwLYU",
+      "title": {
+        "zh": "AP Bio Speed Review - ALL 8 Units in Under 15 Minutes!",
+        "en": "AP Bio Speed Review - ALL 8 Units in Under 15 Minutes!"
+      }
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+node_modules/
+test-results/
+playwright-report/
+.env
+.env.*
+.DS_Store
+
+# 内部需求说明，仅保留在本地，不提交
+APdemo_TASK.md

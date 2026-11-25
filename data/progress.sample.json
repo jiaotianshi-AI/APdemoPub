@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "studentId": "stu_demo",
+  "course": { "id": "crs_apbio", "name": { "zh": "AP 生物学", "en": "AP Biology" } },
+  "currentUnit": { "id": "unit_apbio_2", "number": 2,
+                   "name": { "zh": "细胞结构与功能", "en": "Cell Structure and Function" } },
+  "percent": 10
+}

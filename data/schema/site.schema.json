@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "site.schema.json",
+  "title": "Sites file",
+  "type": "object",
+  "required": ["schemaVersion", "items"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "items": { "type": "array", "items": { "$ref": "#/$defs/site" } }
+  },
+  "$defs": {
+    "localized": { "type": "object", "required": ["zh","en"], "additionalProperties": false, "properties": { "zh": {"type":"string","minLength":1}, "en": {"type":"string","minLength":1} } },
+    "site": {
+      "type": "object",
+      "required": ["id", "order", "enabled", "url", "name", "description", "logo"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^site_[a-z0-9_]+$" },
+        "order": { "type": "integer", "minimum": 1 },
+        "enabled": { "type": "boolean" },
+        "url": { "type": "string", "pattern": "^https://" },
+        "name": { "$ref": "#/$defs/localized" },
+        "description": { "$ref": "#/$defs/localized" },
+        "logo": { "type": ["string", "null"], "description": "Same-origin relative path, or null for the neutral placeholder icon." }
+      }
+    }
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "video.schema.json",
+  "title": "Videos file",
+  "type": "object",
+  "required": ["schemaVersion", "items"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "items": { "type": "array", "items": { "$ref": "#/$defs/video" } }
+  },
+  "$defs": {
+    "localized": { "type": "object", "required": ["zh","en"], "additionalProperties": false, "properties": { "zh": {"type":"string","minLength":1}, "en": {"type":"string","minLength":1} } },
+    "video": {
+      "type": "object",
+      "required": ["id", "order", "enabled", "provider", "videoId", "title"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^vid_[a-z0-9_]+$" },
+        "order": { "type": "integer", "minimum": 1 },
+        "enabled": { "type": "boolean" },
+        "provider": { "enum": ["youtube", "bilibili"] },
+        "videoId": { "type": "string", "minLength": 1 },
+        "title": { "oneOf": [ { "type": "null" }, { "$ref": "#/$defs/localized" } ] }
+      }
+    }
+  }
+}

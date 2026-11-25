@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 220" width="640" height="220" role="img" aria-labelledby="t d">
+  <title id="t">学生提问、机器人查询资料后回答的示意图 / Illustration: a student asks, a bot looks up materials and answers</title>
+  <desc id="d">左边是学生提问的对话气泡，中间箭头指向一个原创的简单机器人，机器人旁边有几本书，右边是回答气泡。 A question bubble on the left, an arrow to a simple original robot beside a stack of books, and an answer bubble on the right.</desc>
+  <rect width="640" height="220" rx="16" fill="#eef4ff"/>
+  <!-- 提问气泡 -->
+  <g>
+    <rect x="18" y="50" width="120" height="84" rx="16" fill="#ffffff" stroke="#2563eb" stroke-width="3"/>
+    <path d="M44 134 L36 160 L68 134 Z" fill="#ffffff" stroke="#2563eb" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M45 134 L67 134" stroke="#ffffff" stroke-width="5"/>
+    <text x="78" y="106" font-family="sans-serif" font-size="46" font-weight="700" fill="#2563eb" text-anchor="middle">?</text>
+  </g>
+  <!-- 箭头 -->
+  <path d="M150 92 H196" stroke="#475569" stroke-width="5" stroke-linecap="round"/>
+  <path d="M184 80 L198 92 L184 104" fill="none" stroke="#475569" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- 机器人 -->
+  <g>
+    <line x1="266" y1="34" x2="266" y2="54" stroke="#475569" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="266" cy="30" r="7" fill="#f59e0b"/>
+    <rect x="218" y="54" width="96" height="76" rx="20" fill="#2563eb"/>
+    <circle cx="246" cy="86" r="10" fill="#ffffff"/>
+    <circle cx="286" cy="86" r="10" fill="#ffffff"/>
+    <circle cx="248" cy="88" r="4" fill="#1e293b"/>
+    <circle cx="288" cy="88" r="4" fill="#1e293b"/>
+    <path d="M248 110 Q266 122 284 110" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+    <rect x="232" y="134" width="68" height="44" rx="12" fill="#1d4ed8"/>
+    <rect x="210" y="140" width="16" height="30" rx="8" fill="#1d4ed8"/>
+    <rect x="306" y="140" width="16" height="30" rx="8" fill="#1d4ed8"/>
+  </g>
+  <!-- 书本 -->
+  <g>
+    <rect x="334" y="158" width="70" height="14" rx="3" fill="#10b981"/>
+    <rect x="340" y="144" width="62" height="14" rx="3" fill="#f59e0b"/>
+    <rect x="336" y="130" width="66" height="14" rx="3" fill="#ef4444"/>
+    <rect x="344" y="134" width="40" height="3" fill="#ffffff" opacity="0.8"/>
+  </g>
+  <!-- 箭头 -->
+  <path d="M418 92 H464" stroke="#475569" stroke-width="5" stroke-linecap="round"/>
+  <path d="M452 80 L466 92 L452 104" fill="none" stroke="#475569" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- 回答气泡 -->
+  <g>
+    <rect x="482" y="50" width="140" height="84" rx="16" fill="#ffffff" stroke="#10b981" stroke-width="3"/>
+    <path d="M600 134 L608 160 L576 134 Z" fill="#ffffff" stroke="#10b981" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M577 134 L599 134" stroke="#ffffff" stroke-width="5"/>
+    <rect x="504" y="72" width="96" height="8" rx="4" fill="#cbd5e1"/>
+    <rect x="504" y="90" width="80" height="8" rx="4" fill="#cbd5e1"/>
+    <rect x="504" y="108" width="88" height="8" rx="4" fill="#cbd5e1"/>
+  </g>
+</svg>

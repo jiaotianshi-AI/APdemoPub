@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    {
+      "id": "qa_1",
+      "question": {
+        "zh": "细胞膜是如何控制物质进出细胞的？",
+        "en": "How does the cell membrane control what enters and leaves the cell?"
+      },
+      "answer": {
+        "zh": "细胞膜具有选择透过性：小的不带电分子可以直接扩散通过，离子和极性分子则需要通过通道蛋白或载体蛋白，运输方式分为不耗能的被动运输和耗能的主动运输。",
+        "en": "The membrane is selectively permeable: small nonpolar molecules can diffuse through directly, while ions and polar molecules need channel or carrier proteins, by passive transport (no energy) or active transport (uses energy)."
+      }
+    }
+  ]
+}
