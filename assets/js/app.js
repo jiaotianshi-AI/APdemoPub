@@ -134,61 +134,27 @@
     });
   }
 
-  /* ---------- 自学网站 ---------- */
-  function openSite(e, a) {
-    e.preventDefault(); // 由用户点击直接触发
-    var url = a.href;
-    var w = null;
-    try { w = window.open(url, "_blank", "popup,width=1100,height=800"); } catch (err) { w = null; }
-    if (w) {
-      try { w.opener = null; } catch (err) { /* ignore */ }
-    } else {
-      // 弹窗被拦截：退回普通新标签页
-      try { window.open(url, "_blank", "noopener,noreferrer"); } catch (err) { /* ignore */ }
-    }
-  }
-
-  function safeLogo(path) {
-    if (typeof path !== "string" || !path) return null;
-    if (/^([a-z][a-z0-9+.-]*:|\/)/i.test(path)) return null; // 只接受同源相对路径
-    return path;
+  /* ---------- 关联网站（页面底部，只显示网站名与链接） ---------- */
+  function hostOf(url) {
+    try { return new URL(url).host; } catch (e) { return url; }
   }
 
   function renderSites() {
     safeRender("sites-body", function (host, items) {
-      var ul = el("ul", "entry-list");
+      var ul = el("ul", "refs-list");
       items.forEach(function (s) {
         var li = el("li");
-        var a = el("a", "entry site-entry");
+        var a = el("a", "ref-link");
         a.href = s.url;
         a.target = "_blank";
         a.rel = "noopener noreferrer";
         a.setAttribute("data-site-id", s.id);
-        var icon = el("span", "entry-icon");
-        icon.setAttribute("aria-hidden", "true");
-        var logo = safeLogo(s.logo);
-        if (logo) {
-          var img = el("img");
-          img.alt = "";
-          img.src = logo;
-          img.addEventListener("error", function () { img.remove(); icon.textContent = pick(s.name).charAt(0).toUpperCase(); });
-          icon.appendChild(img);
-        } else {
-          icon.textContent = pick(s.name).charAt(0).toUpperCase();
-        }
-        var txt = el("span", "entry-text");
-        txt.appendChild(el("span", "entry-name", pick(s.name)));
-        txt.appendChild(el("span", "entry-desc", pick(s.description)));
-        var sr = el("span", "sr-only", " " + t("sites.opensNew"));
-        txt.appendChild(sr);
-        a.appendChild(icon);
-        a.appendChild(txt);
-        a.addEventListener("click", function (e) { openSite(e, a); });
+        a.appendChild(el("span", "ref-name", pick(s.name)));
+        a.appendChild(el("span", "ref-url", hostOf(s.url)));
         li.appendChild(a);
         ul.appendChild(li);
       });
       host.appendChild(ul);
-      host.appendChild(el("p", "note", t("sites.note")));
     });
   }
 
@@ -347,6 +313,8 @@
     var host = body("qa-body");
     if (!host) return;
     clear(host);
+    var layout = el("div", "qa-layout");
+    var left = el("div", "qa-left");
     var fig = el("div", "qa-figure");
     var img = el("img", "qa-illustration");
     img.src = "assets/img/chatbot.svg";
@@ -354,8 +322,9 @@
     img.alt = t("qa.illustrationLabel");
     img.setAttribute("aria-label", t("qa.illustrationLabel"));
     fig.appendChild(img);
-    host.appendChild(fig);
-    host.appendChild(el("p", "note qa-caption", t("qa.caption")));
+    left.appendChild(fig);
+    left.appendChild(el("p", "note qa-caption", t("qa.caption")));
+    layout.appendChild(left);
 
     var s = state.qa;
     var box = el("div", "qa-demo");
@@ -383,7 +352,8 @@
       clear(box);
       box.appendChild(errorNode());
     }
-    host.appendChild(box);
+    layout.appendChild(box);
+    host.appendChild(layout);
   }
 
   /* ---------- 其他 ---------- */

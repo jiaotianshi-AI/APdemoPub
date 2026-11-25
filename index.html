@@ -45,12 +45,6 @@
 
       <!-- 辅助模块：顺序固定 -->
       <div class="aux">
-        <section class="card module module-aux" id="mod-sites" aria-labelledby="h-sites">
-          <h2 id="h-sites" class="module-title" data-i18n="mod.sites.title"></h2>
-          <p class="tagline" data-i18n="mod.sites.tagline"></p>
-          <div class="module-body" id="sites-body"><p class="muted" data-i18n="common.loading"></p></div>
-        </section>
-
         <section class="card module module-aux" id="mod-videos" aria-labelledby="h-videos">
           <h2 id="h-videos" class="module-title" data-i18n="mod.videos.title"></h2>
           <p class="tagline" data-i18n="mod.videos.tagline"></p>
@@ -66,7 +60,12 @@
     </main>
 
     <footer class="footer">
-      <p data-i18n="footer.disclaimer"></p>
+      <!-- 关联网站：放在页面底部，只显示网站名与链接 -->
+      <section class="refs" id="mod-sites" aria-labelledby="h-sites">
+        <h2 id="h-sites" class="refs-title" data-i18n="refs.title"></h2>
+        <div class="refs-body" id="sites-body"><p class="muted" data-i18n="common.loading"></p></div>
+      </section>
+      <p class="disclaimer" data-i18n="footer.disclaimer"></p>
     </footer>
   </div>
 

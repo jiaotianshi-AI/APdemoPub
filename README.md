@@ -1,6 +1,6 @@
 # APdemo —— AP 自学网站演示首页（第一阶段）
 
-纯静态（HTML/CSS/JS）、中英双语。进度测试为核心主模块，自学网站 / 自学视频 / AP 问答机器人为辅助模块，另有一个演示用登录入口。
+纯静态（HTML/CSS/JS）、中英双语。进度测试为核心主模块，自学视频 / AP 问答机器人为辅助模块，页面底部为“关联网站”链接，另有一个演示用登录入口。
 **演示版：没有后台、没有真实登录、没有真实机器人。** 最终报告见 `REPORT.md`。
 
 ## 目录
@@ -28,7 +28,7 @@ URL 参数 `?lang=zh` / `?lang=en` 可指定语言。
 
 ## 修改内容
 - **`assets/js/config.js`**：`brandName`（品牌名，占位名）、`dataSource`（`"static"` 为本阶段唯一实现；`"remote"` 仅预留，调用会报 `NOT_IMPLEMENTED`，不发请求）、`apiBase`（预留）。
-- **`data/sites.json`**：站点列表（`url`、`name`、`description`、`order`、`enabled`）。`logo`：拿到授权后填同源相对路径（如 `assets/img/xxx.png`）并把图片放进去即可；为 null 时显示首字母占位。
+- **`data/sites.json`**：站点列表（`url`、`name`、`description`、`order`、`enabled`）。`logo` 字段保留但页面目前不显示（关联网站只显示网站名与网址），`description` 同样暂不显示。
 - **`data/videos.json`**：视频 ID 与标题；三个视频已填入原标题（英文原题，中文界面也显示原题，未翻译）；`title` 为 null 时显示“AP 视频 N”占位，填 `{ "zh": "...", "en": "..." }` 即可显示标题。
 - **`data/progress.sample.json`**：课程、单元、进度百分比（0–100 整数）。
 - **`data/assessment.sample.json`**：测试时间（`scheduledAt` 带时区偏移，`timezone` 为 IANA 名）。未到时间显示倒计时，已过显示“已结束 / Ended”。
@@ -49,7 +49,7 @@ npx playwright test --project=chromium   # 只跑 Chromium
 测试会自动起本地服务器（通过 `/APdemo/` 子路径）。WebKit 项目用来近似 iPad Safari，**不等于真机**。截图输出到 `tests/screenshots/`（Chromium）和 `tests/screenshots/webkit/`，供人工审阅外观。
 
 ## 人工验收清单（需求方在真机上做）
-1. 真实 iPad（横屏）Safari：版面、点击大小、三个站点弹窗/新标签页、视频模态窗口
+1. 真实 iPad（横屏）Safari：版面、点击大小、底部三个关联网站链接（新标签页打开）、视频模态窗口
 2. 真实安卓平板（横屏）Chrome：同上
 3. 笔记本 Chrome / Edge / Safari：同上
 4. 视频是否真的能播放（未核实这三个视频是否允许嵌入）

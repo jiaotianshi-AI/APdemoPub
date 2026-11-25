@@ -15,7 +15,7 @@ async function open(page, lang = "zh") {
   await page.goto(`index.html?lang=${lang}`);
   await page.waitForSelector("#qa-body .qa-item");
   await page.waitForSelector("#videos-body .video-entry");
-  await page.waitForSelector("#sites-body .site-entry");
+  await page.waitForSelector("#sites-body .ref-link");
   await page.waitForSelector("#progress-body .bar");
 }
 
@@ -49,14 +49,14 @@ for (const [w, h] of LANDSCAPE.filter(([w]) => w >= 900)) {
       const main = box("main");
       const content = main.width - parseFloat(getComputedStyle(document.querySelector("main")).paddingLeft) * 2;
       const p = box("#mod-progress");
-      const aux = ["#mod-sites", "#mod-videos", "#mod-qa"].map(box);
+      const aux = ["#mod-videos", "#mod-qa"].map(box);
       const order = Array.from(document.querySelectorAll("section.module")).map((s) => s.id);
       return {
         content, pw: p.width, pbottom: p.bottom, parea: p.width * p.height,
         auxTop: Math.min(...aux.map((b) => b.top)), auxArea: Math.max(...aux.map((b) => b.width * b.height)),
-        titleRatio: fs("#h-progress") / Math.max(fs("#h-sites"), fs("#h-videos"), fs("#h-qa")),
+        titleRatio: fs("#h-progress") / Math.max(fs("#h-videos"), fs("#h-qa")),
         order, barH: box("#progress-body .bar").height, pTop: p.top, pBottom: p.bottom,
-        auxHeadingBottom: document.querySelector("#h-sites").getBoundingClientRect().bottom,
+        auxHeadingBottom: document.querySelector("#h-videos").getBoundingClientRect().bottom,
         pageH: document.documentElement.scrollHeight
       };
     });
@@ -75,7 +75,7 @@ test("T22 目标：1180x820 首屏看到完整进度卡 + 辅助标题，总高 
   await open(page, "zh");
   const r = await page.evaluate(() => ({
     pBottom: document.querySelector("#mod-progress").getBoundingClientRect().bottom,
-    h: document.querySelector("#h-sites").getBoundingClientRect().bottom,
+    h: document.querySelector("#h-videos").getBoundingClientRect().bottom,
     pageH: document.documentElement.scrollHeight
   }));
   expect(r.pBottom).toBeLessThanOrEqual(820);
@@ -87,7 +87,7 @@ for (const [w, h] of [[820, 1180], [390, 844]]) {
   test(`T22 窄视口顺序 ${w}x${h}`, async ({ page }) => {
     await page.setViewportSize({ width: w, height: h });
     await open(page, "zh");
-    const tops = await page.evaluate(() => ["#mod-progress", "#mod-sites", "#mod-videos", "#mod-qa"].map((s) => document.querySelector(s).getBoundingClientRect().top));
+    const tops = await page.evaluate(() => ["#mod-progress", "#mod-videos", "#mod-qa", "#mod-sites"].map((s) => document.querySelector(s).getBoundingClientRect().top));
     expect(tops).toEqual([...tops].sort((a, b) => a - b));
   });
 }
@@ -111,7 +111,7 @@ test("T14 1180x820 下所有可交互元素 ≥ 44px", async ({ page }) => {
 
 test("T13 仅键盘可到达并操作所有交互元素，焦点可见", async ({ page }) => {
   await open(page, "zh");
-  const expected = 2 + 1 + 3 + 3; // 语言×2、登录、网站×3、视频×3
+  const expected = 2 + 1 + 3 + 3; // 语言×2、登录、视频×3、关联网站×3
   const seen = [];
   for (let i = 0; i < expected; i++) {
     await page.keyboard.press("Tab");

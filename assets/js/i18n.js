@@ -29,10 +29,8 @@
       "progress.ended": "已结束",
       "progress.noAssessment": "暂无已安排的测试",
 
-      "mod.sites.title": "自学网站",
-      "mod.sites.tagline": "官方网站，学习网站，专注学习",
-      "sites.note": "点击将在新窗口打开；在平板上，弹窗可能以新标签页形式打开。",
-      "sites.opensNew": "（在新窗口打开）",
+
+      "refs.title": "关联网站",
 
       "mod.videos.title": "自学视频",
       "mod.videos.tagline": "精选/自选名师AP视频",
@@ -49,7 +47,7 @@
       "qa.q": "问",
       "qa.a": "答",
 
-      "footer.disclaimer": "AP® 是 College Board 的注册商标。College Board 与本网站无关，也未对本网站提供认可或背书。本网站为演示版。Khan Academy 和 Google Classroom 为各自所有者的商标，本网站与其无关联。"
+      "footer.disclaimer": "AP® 是 College Board 的注册商标。本站为非官方演示版，与 College Board、Khan Academy、Google Classroom 均无关联，也未获其认可。"
     },
     en: {
       "meta.title": "AP Self-Study Demo",
@@ -77,10 +75,8 @@
       "progress.ended": "Ended",
       "progress.noAssessment": "No test scheduled",
 
-      "mod.sites.title": "Study Sites",
-      "mod.sites.tagline": "Official sites and study sites, focused learning",
-      "sites.note": "Opens in a new window; on tablets the pop-up may open as a new tab.",
-      "sites.opensNew": "(opens in a new window)",
+
+      "refs.title": "References",
 
       "mod.videos.title": "Study Videos",
       "mod.videos.tagline": "Curated and self-picked AP videos from top teachers",
@@ -97,7 +93,7 @@
       "qa.q": "Q",
       "qa.a": "A",
 
-      "footer.disclaimer": "AP® is a registered trademark of the College Board, which is not affiliated with and does not endorse this site. This is a demo. Khan Academy and Google Classroom are trademarks of their respective owners and are not affiliated with this site."
+      "footer.disclaimer": "AP® is a registered trademark of the College Board. This is an unofficial demo, not affiliated with or endorsed by the College Board, Khan Academy or Google Classroom."
     }
   };
 

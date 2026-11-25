@@ -19,7 +19,7 @@ async function ready(page, lang = "zh") {
   if (!page.__thumbStubbed) { page.__thumbStubbed = true; await stubThumbs(page).catch(() => {}); }
   await page.goto(`index.html?lang=${lang}`);
   await page.waitForSelector("#progress-body .bar");
-  await page.waitForSelector("#sites-body .site-entry");
+  await page.waitForSelector("#sites-body .ref-link");
   await page.waitForSelector("#videos-body .video-entry");
   await page.waitForSelector("#qa-body .qa-item");
 }
@@ -36,9 +36,9 @@ test("T3/T4 无控制台错误；加载时只有同源请求和 i.ytimg.com", as
   expect([...hosts].some((h) => h.includes("youtube-nocookie.com"))).toBe(false);
 });
 
-test("T5 自学网站入口", async ({ page, context }) => {
+test("T5 关联网站链接（页面底部）", async ({ page, context }) => {
   await ready(page);
-  const links = page.locator("#sites-body a");
+  const links = page.locator("#mod-sites a");
   await expect(links).toHaveCount(3);
   for (let i = 0; i < 3; i++) {
     await expect(links.nth(i)).toHaveAttribute("href", SITE_URLS[i]);
@@ -212,19 +212,18 @@ test("T21 数据取不到时只影响对应模块", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
-test("T23 模块副标题", async ({ page }) => {
+test("T23 模块副标题（进度、视频、问答；关联网站已无副标题）", async ({ page }) => {
   const exp = {
-    zh: { progress: "持续跟踪和推进当前学习进度，定时测试学习成果", sites: "官方网站，学习网站，专注学习", videos: "精选/自选名师AP视频", qa: "AP相关全知道" },
+    zh: { progress: "持续跟踪和推进当前学习进度，定时测试学习成果", videos: "精选/自选名师AP视频", qa: "AP相关全知道" },
     en: {
       progress: "Track and move your current study progress forward, with scheduled tests of what you've learned",
-      sites: "Official sites and study sites, focused learning",
       videos: "Curated and self-picked AP videos from top teachers",
       qa: "Everything AP, answered"
     }
   };
   for (const lang of ["zh", "en"]) {
     await ready(page, lang);
-    for (const m of ["progress", "sites", "videos", "qa"]) {
+    for (const m of ["progress", "videos", "qa"]) {
       await expect(page.locator(`#mod-${m} .tagline`)).toHaveText(exp[lang][m]);
     }
   }
@@ -238,4 +237,23 @@ test("视频标题来自 data/videos.json", async ({ page }) => {
     "1.1 Structure of Water and Hydrogen Bonding - AP Biology (Updated 2025-2026)",
     "AP Bio Speed Review - ALL 8 Units in Under 15 Minutes!"
   ]);
+});
+
+test("关联网站：位于页面底部，只有网站名与网址，没有图标和说明；页脚为精简版声明", async ({ page }) => {
+  await ready(page, "zh");
+  const r = await page.evaluate(() => {
+    const refs = document.querySelector("#mod-sites").getBoundingClientRect();
+    const vids = document.querySelector("#mod-videos").getBoundingClientRect();
+    const qa = document.querySelector("#mod-qa").getBoundingClientRect();
+    return { refsTop: refs.top, below: Math.max(vids.bottom, qa.bottom), inFooter: !!document.querySelector("footer #mod-sites"), icons: document.querySelectorAll("#mod-sites .entry-icon, #mod-sites img").length };
+  });
+  expect(r.inFooter).toBe(true);
+  expect(r.refsTop).toBeGreaterThanOrEqual(r.below);
+  expect(r.icons).toBe(0);
+  await expect(page.locator("#h-sites")).toHaveText("关联网站");
+  await expect(page.locator("#mod-sites .ref-link").first()).toContainText("myap.collegeboard.org");
+  await expect(page.locator(".disclaimer")).toContainText("非官方演示版");
+  await page.click('.lang-btn[data-lang="en"]');
+  await expect(page.locator("#h-sites")).toHaveText("References");
+  await expect(page.locator(".disclaimer")).toContainText("unofficial demo");
 });
