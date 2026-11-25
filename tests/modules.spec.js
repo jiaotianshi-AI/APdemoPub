@@ -239,7 +239,7 @@ test("视频标题来自 data/videos.json", async ({ page }) => {
   ]);
 });
 
-test("关联网站：位于页面底部，只有网站名与网址，没有图标和说明；页脚为精简版声明", async ({ page }) => {
+test("关联网站：位于页面底部，只有网站名，没有图标、网址和说明；页脚为精简版声明", async ({ page }) => {
   await ready(page, "zh");
   const r = await page.evaluate(() => {
     const refs = document.querySelector("#mod-sites").getBoundingClientRect();
@@ -251,7 +251,7 @@ test("关联网站：位于页面底部，只有网站名与网址，没有图�
   expect(r.refsTop).toBeGreaterThanOrEqual(r.below);
   expect(r.icons).toBe(0);
   await expect(page.locator("#h-sites")).toHaveText("关联网站");
-  await expect(page.locator("#mod-sites .ref-link").first()).toContainText("myap.collegeboard.org");
+  await expect(page.locator("#mod-sites .ref-link")).toHaveText(["My AP", "Khan Academy", "Google Classroom"]);
   await expect(page.locator(".disclaimer")).toContainText("非官方演示版");
   await page.click('.lang-btn[data-lang="en"]');
   await expect(page.locator("#h-sites")).toHaveText("References");

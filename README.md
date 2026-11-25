@@ -28,7 +28,7 @@ URL 参数 `?lang=zh` / `?lang=en` 可指定语言。
 
 ## 修改内容
 - **`assets/js/config.js`**：`brandName`（品牌名，占位名）、`dataSource`（`"static"` 为本阶段唯一实现；`"remote"` 仅预留，调用会报 `NOT_IMPLEMENTED`，不发请求）、`apiBase`（预留）。
-- **`data/sites.json`**：站点列表（`url`、`name`、`description`、`order`、`enabled`）。`logo` 字段保留但页面目前不显示（关联网站只显示网站名与网址），`description` 同样暂不显示。
+- **`data/sites.json`**：站点列表（`url`、`name`、`description`、`order`、`enabled`）。`logo` 字段保留但页面目前不显示（关联网站只显示网站名），`description` 同样暂不显示。
 - **`data/videos.json`**：视频 ID 与标题；三个视频已填入原标题（英文原题，中文界面也显示原题，未翻译）；`title` 为 null 时显示“AP 视频 N”占位，填 `{ "zh": "...", "en": "..." }` 即可显示标题。
 - **`data/progress.sample.json`**：课程、单元、进度百分比（0–100 整数）。
 - **`data/assessment.sample.json`**：测试时间（`scheduledAt` 带时区偏移，`timezone` 为 IANA 名）。未到时间显示倒计时，已过显示“已结束 / Ended”。

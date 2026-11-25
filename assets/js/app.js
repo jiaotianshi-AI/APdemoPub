@@ -135,10 +135,6 @@
   }
 
   /* ---------- 关联网站（页面底部，只显示网站名与链接） ---------- */
-  function hostOf(url) {
-    try { return new URL(url).host; } catch (e) { return url; }
-  }
-
   function renderSites() {
     safeRender("sites-body", function (host, items) {
       var ul = el("ul", "refs-list");
@@ -150,7 +146,6 @@
         a.rel = "noopener noreferrer";
         a.setAttribute("data-site-id", s.id);
         a.appendChild(el("span", "ref-name", pick(s.name)));
-        a.appendChild(el("span", "ref-url", hostOf(s.url)));
         li.appendChild(a);
         ul.appendChild(li);
       });

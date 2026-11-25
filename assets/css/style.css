@@ -117,7 +117,6 @@ a { color: var(--c-primary); }
 .refs-list { display: flex; flex-wrap: wrap; gap: 4px 24px; }
 .ref-link { min-height: 44px; display: inline-flex; align-items: center; gap: 8px; padding: 0 2px; font-size: 0.9375rem; color: var(--c-primary-dark); text-decoration: underline; text-underline-offset: 3px; }
 .ref-name { font-weight: 600; }
-.ref-url { font-size: 0.8125rem; color: var(--c-muted); }
 .disclaimer { margin-top: 8px; }
 
 /* ---------- 模态窗口 ---------- */
