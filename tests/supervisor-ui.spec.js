@@ -453,3 +453,27 @@ test("查看答题的对话框通过 axe；还没开始的测试提示“学生�
   expect(res.violations.filter((v) => ["serious", "critical"].includes(v.impact)).map((v) => v.id)).toEqual([]);
   expect(c).toBeTruthy();
 });
+
+test("截图归档：每题回答与评分（供人工审阅外观）", async ({ page, playwright, baseURL }, testInfo) => {
+  const fs = require("fs");
+  const path = require("path");
+  const dir = path.join(__dirname, "screenshots", "supervisor" + (testInfo.project.name === "chromium" ? "" : "-" + testInfo.project.name));
+  fs.mkdirSync(dir, { recursive: true });
+  const { students } = await setup(page, 1);
+  await createVia(page, "Unit 2", { files: ["Q1-细胞膜.pdf", "Q2-渗透.pdf", "Q3-酶.pdf"] });
+  const list = (await (await page.request.get(`/api/supervisor/students/${students[0].id}/assessments`)).json()).assessments;
+  const asm = list.find((a) => a.unit === "Unit 2");
+  const stuCtx = await loginCtx(playwright, baseURL, students[0].username);
+  const started = await stuCtx.post(`/api/student/assessments/${asm.id}/start`, { headers: H, data: { method: "typed", confirmEarly: true } });
+  const qs = (await started.json()).questions;
+  await stuCtx.put(`/api/student/assessments/${asm.id}/answers/${qs[0].id}`, { headers: H, data: { text: "细胞膜具有选择透过性，小分子可以直接扩散。" } });
+  await stuCtx.put(`/api/student/assessments/${asm.id}/answers/${qs[1].id}`, { headers: H, data: { text: "水分子通过渗透作用从低浓度向高浓度移动。" } });
+  await stuCtx.post(`/api/student/assessments/${asm.id}/submit`, { headers: H, data: {} });
+  const f = await uploadPdfApi(await loginCtx(playwright, baseURL, (await (await page.request.get("/api/me")).json()).username), "Q2-回答.pdf", "a");
+  await page.request.patch(`/api/supervisor/assessments/${asm.id}`, { headers: H, data: { questions: [{ questionFileId: qs[0].id, score: 5 }, { questionFileId: qs[1].id, answerFileId: f.id, score: 3 }] } });
+  await page.reload();
+  await page.screenshot({ path: path.join(dir, "supervisor-questions.png"), fullPage: true });
+  await card(page, "Unit 2").getByRole("button", { name: /^答题与评分：/ }).click();
+  await page.screenshot({ path: path.join(dir, "supervisor-grade.png") });
+  await stuCtx.dispose();
+});
