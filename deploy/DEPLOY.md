@@ -4,8 +4,8 @@
 
 结构：Caddy（对外，自动 HTTPS）→ Node.js 应用（只监听本机 127.0.0.1:3000）→ SQLite 数据库文件。
 - 应用文件：`/opt/apdemo`（只读，由 `update.sh` 从仓库同步）
-- 数据库：`/var/lib/apdemo/apdemo.db`（只有 `apdemo` 用户可读写）
-- 每日备份：`/var/backups/apdemo/`（保留最近 14 份，仅 root 可读）
+- 数据库：`/var/lib/apdemo/apdemo.db`；上传的 PDF：`/var/lib/apdemo/uploads/`（只有 `apdemo` 用户可读写，不能通过网址直接访问，每次打开都要先检查登录和权限）
+- 每日备份：`/var/backups/apdemo/`（数据库和上传文件各保留最近 14 份，仅 root 可读；注意磁盘空间）
 - 服务：`systemctl status apdemo`、`systemctl status caddy`
 
 ## 第一次安装
@@ -29,6 +29,15 @@
 ```bash
 cd ~/APdemoPub && git pull && sudo bash deploy/update.sh
 ```
+
+## 第一次部署新版本（增加了测试管理和 PDF 上传）后请检查
+1. 更新后运行：`cd ~/APdemoPub && git pull && sudo bash deploy/update.sh`（会同步新的服务配置并重启）。
+2. **检查服务器的时区数据**，确认温哥华的偏移是你期望的（页面倒计时用这个偏移）：
+   ```bash
+   node -e 'const f=(d)=>new Intl.DateTimeFormat("en-US",{timeZone:"America/Vancouver",timeStyle:"long"}).format(new Date(d));console.log(f("2026-11-28T23:00:00Z"))'
+   ```
+   这一时刻是 UTC 23:00。你确认温哥华当前是 UTC-7，所以应当显示 `4:00:00 PM PDT`（如果显示 `3:00:00 PM PST`，说明服务器的时区数据与你的预期不一致，请告诉我）。
+3. 单个 PDF 上限 20MB，每条测试的题目、答题文件各最多 10 个；超过会被拒绝。
 
 ## 常用操作
 - 管理员忘记密码：`sudo bash /opt/apdemo/deploy/create-admin.sh 账号名 reset`

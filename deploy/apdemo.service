@@ -10,6 +10,7 @@ Environment=NODE_ENV=production
 Environment=HOST=127.0.0.1
 Environment=PORT=3000
 Environment=APDEMO_DB=/var/lib/apdemo/apdemo.db
+Environment=APDEMO_UPLOADS=/var/lib/apdemo/uploads
 ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning server/index.js
 Restart=on-failure
 RestartSec=3

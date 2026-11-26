@@ -38,7 +38,7 @@ fi
 
 echo "== 4/7 创建运行用户、目录，部署应用文件 =="
 id apdemo >/dev/null 2>&1 || useradd --system --home-dir "$DATA_DIR" --shell /usr/sbin/nologin apdemo
-mkdir -p "$APP_DIR" "$DATA_DIR"
+mkdir -p "$APP_DIR" "$DATA_DIR" "$DATA_DIR/uploads"
 chown apdemo:apdemo "$DATA_DIR"
 chmod 700 "$DATA_DIR"
 bash "$HERE/update.sh" --no-restart

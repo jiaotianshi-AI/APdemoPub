@@ -17,6 +17,15 @@ chown -R root:root "$APP_DIR"
 chmod -R go-w "$APP_DIR"
 
 if [ "${1:-}" != "--no-restart" ]; then
+  # 服务配置、备份定时器可能随版本更新，一并同步
+  install -m 644 "$REPO/deploy/apdemo.service" /etc/systemd/system/apdemo.service
+  install -m 644 "$REPO/deploy/apdemo-backup.service" /etc/systemd/system/apdemo-backup.service
+  install -m 644 "$REPO/deploy/apdemo-backup.timer" /etc/systemd/system/apdemo-backup.timer
+  chmod 755 "$APP_DIR/deploy/backup.sh"
+  mkdir -p /var/lib/apdemo/uploads
+  chown apdemo:apdemo /var/lib/apdemo/uploads
+  chmod 700 /var/lib/apdemo/uploads
+  systemctl daemon-reload
   systemctl restart apdemo.service
   systemctl --no-pager --lines=3 status apdemo.service | head -5 || true
   echo "已更新并重启。"
