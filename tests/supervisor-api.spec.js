@@ -105,7 +105,7 @@ test("下载：关联的督导者可以打开；其他人、其他角色、未�
   expect(res.status()).toBe(200);
   expect(res.headers()["content-type"]).toBe("application/pdf");
   expect(res.headers()["content-disposition"]).toContain("inline");
-  expect(res.headers()["content-security-policy"]).toContain("sandbox");
+  expect(res.headers()["content-security-policy"]).toContain("default-src 'none'");
   expect(res.headers()["x-content-type-options"]).toBe("nosniff");
   expect((await res.body()).toString()).toContain("secret-content");
 

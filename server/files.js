@@ -99,4 +99,21 @@ function gcFiles(graceMinutes) {
   return rows.length;
 }
 
-module.exports = { saveUpload, deleteIfUnreferenced, gcFiles, pathFor };
+// 发送 PDF：内联显示。不用 CSP sandbox（会让浏览器内置的 PDF 查看器无法显示），改为禁止一切其他资源，并只允许本站页面嵌入
+function sendPdf(req, res, f) {
+  fs.stat(pathFor(f.stored_name), (err, st) => {
+    if (err) return require('./http').sendJson(res, 404, { error: 'NOT_FOUND', message: '没有找到这个文件。' });
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.writeHead(200, {
+      'Content-Type': 'application/pdf',
+      'Content-Length': st.size,
+      'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(f.original_name)}`,
+      'Content-Security-Policy': "default-src 'none'; frame-ancestors 'self'",
+      'Cache-Control': 'private, no-store'
+    });
+    if (req.method === 'HEAD') return res.end();
+    fs.createReadStream(pathFor(f.stored_name)).pipe(res);
+  });
+}
+
+module.exports = { saveUpload, deleteIfUnreferenced, gcFiles, pathFor, sendPdf };

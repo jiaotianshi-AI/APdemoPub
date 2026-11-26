@@ -8,10 +8,13 @@ const adminApi = require('./routes-admin');
 const supervisorApi = require('./routes-supervisor');
 const studentApi = require('./routes-student');
 const files = require('./files');
+const attempts = require('./attempts');
 const { httpError, sendJson, sendText, redirect, sendFile } = require('./http');
 
 const PAGES = path.join(config.root, 'pages');
+const EXAM_CSP_EXTRA = "; frame-src 'self'"; // 考试页要在本站页面里显示 PDF
 const PAGE_CSP = "default-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
+const EXAM_CSP = PAGE_CSP + EXAM_CSP_EXTRA;
 
 // 未登录也能访问的文件（登录页本身需要）
 const PUBLIC_FILES = new Set(['/assets/css/auth.css', '/assets/js/login.js']);
@@ -20,7 +23,8 @@ const CHANGE_PW_FILES = new Set(['/assets/css/auth.css', '/assets/js/change-pass
 // 仅特定角色可取的文件
 const ROLE_FILES = {
   '/assets/css/admin.css': 'admin', '/assets/js/admin.js': 'admin',
-  '/assets/css/supervisor.css': 'supervisor', '/assets/js/supervisor.js': 'supervisor'
+  '/assets/css/supervisor.css': 'supervisor', '/assets/js/supervisor.js': 'supervisor',
+  '/assets/css/exam.css': 'student', '/assets/js/exam.js': 'student'
 };
 
 const PAGE_ROUTES = {
@@ -29,6 +33,7 @@ const PAGE_ROUTES = {
   '/supervisor': { role: 'supervisor', file: path.join(PAGES, 'supervisor.html') },
   '/pending': { role: 'support', file: path.join(PAGES, 'pending.html') },
   '/admin': { role: 'admin', file: path.join(PAGES, 'admin.html') },
+  '/exam': { role: 'student', file: path.join(PAGES, 'exam.html'), csp: EXAM_CSP },
   '/change-password': { role: null, file: path.join(PAGES, 'change-password.html') }
 };
 
@@ -118,7 +123,7 @@ function handlePage(req, res, pathname) {
   const route = PAGE_ROUTES[pathname];
   if (route) {
     if (route.role && route.role !== account.type) return redirect(res, authRoutes.homeFor(account));
-    return sendFile(req, res, route.file, route.ownCsp ? {} : pageHeaders);
+    return sendFile(req, res, route.file, route.ownCsp ? {} : (route.csp ? { 'Content-Security-Policy': route.csp } : pageHeaders));
   }
 
   if (pathname.startsWith('/assets/') || pathname.startsWith('/data/')) {
@@ -140,7 +145,7 @@ async function handle(req, res) {
   } catch (err) {
     if (err && err.status) {
       return pathname.startsWith('/api/')
-        ? sendJson(res, err.status, { error: err.code, message: err.message })
+        ? sendJson(res, err.status, Object.assign({ error: err.code, message: err.message }, err.extra || {}))
         : sendText(res, err.status, err.message);
     }
     console.error('[error]', req.method, pathname, err && err.stack ? err.stack.split('\n')[0] : err);
@@ -152,7 +157,9 @@ async function handle(req, res) {
 
 auth.purgeExpiredSessions();
 files.gcFiles(24 * 60);
+attempts.finalizeOverdue();
 setInterval(() => { auth.purgeExpiredSessions(); files.gcFiles(24 * 60); }, 3600 * 1000).unref();
+setInterval(() => { try { attempts.finalizeOverdue(); } catch (e) { console.error('[error] finalizeOverdue', e.message); } }, 30 * 1000).unref(); // 到时自动提交（没人访问时也会处理）
 
 http.createServer(handle).listen(config.port, config.host, () => {
   console.log(`APdemo server listening on http://${config.host}:${config.port}`);

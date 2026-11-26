@@ -1,13 +1,16 @@
 'use strict';
 // 督导者（家长/老师）接口：只能操作自己关联的学生。
-const fs = require('fs');
 const config = require('./config');
 const { db, transaction, audit } = require('./db');
 const { httpError, readJson, sendJson } = require('./http');
 const files = require('./files');
+const attempts = require('./attempts');
 const { wallToIso, dateToIso } = require('./timeutil');
 
 const TEXT_MAX = 64;
+const DURATION_MIN = 5;
+const DURATION_MAX = 300;
+const DURATION_DEFAULT = 60;
 
 /* ---------- 权限 ---------- */
 function isLinked(supervisorId, studentId) {
@@ -33,6 +36,11 @@ function cleanText(value, label) {
   if (!text) throw httpError(422, 'INVALID_FIELD', `请填写${label}。`);
   if ([...text].length > TEXT_MAX) throw httpError(422, 'INVALID_FIELD', `${label}不能超过 ${TEXT_MAX} 个字符。`);
   return text;
+}
+function cleanDuration(value) {
+  if (value === undefined || value === null) return DURATION_DEFAULT;
+  if (!Number.isInteger(value) || value < DURATION_MIN || value > DURATION_MAX) throw httpError(422, 'INVALID_DURATION', `测试时长必须是 ${DURATION_MIN}–${DURATION_MAX} 分钟的整数。`);
+  return value;
 }
 function cleanWall(value, { future }) {
   const t = wallToIso(value, config.timezone);
@@ -80,13 +88,19 @@ function filesOf(assessmentIds) {
   }
   return map;
 }
+function attemptInfo(assessmentId) {
+  const att = attempts.getAttempt(assessmentId);
+  return att ? Object.assign(attempts.publicAttempt(att), attempts.summary(att)) : null;
+}
 function serialize(a, fmap) {
   const f = fmap.get(a.id) || { question: [], answer: [] };
   return {
     id: a.id, studentId: a.student_id, subject: a.subject, unit: a.unit,
     unitStartDate: a.unit_start_date, scheduledWall: a.scheduled_wall, scheduledAt: a.scheduled_at, timezone: a.timezone,
+    durationMinutes: a.duration_minutes,
     status: a.status, score: a.score, gradedAt: a.graded_at, attemptNo: a.attempt_no, retakeOf: a.retake_of,
-    createdAt: a.created_at, questionFiles: f.question, answerFiles: f.answer
+    createdAt: a.created_at, questionFiles: f.question, answerFiles: f.answer,
+    attempt: attemptInfo(a.id)
   };
 }
 function respond(res, status, ids) {
@@ -112,6 +126,7 @@ function listStudents(res, ctx) {
 }
 
 function listAssessments(res, ctx, studentId) {
+  attempts.finalizeOverdue();
   const stu = requireLinkedStudent(ctx, studentId);
   const rows = db.prepare('SELECT * FROM assessments WHERE student_id = ? ORDER BY scheduled_at DESC, id DESC').all(stu.id);
   const fmap = filesOf(rows.map((r) => r.id));
@@ -132,14 +147,15 @@ async function createAssessments(req, res, ctx) {
   const when = cleanWall(body.scheduledWall, { future: true });
   const start = cleanStartDate(body.unitStartDate, when.wall);
   const questionIds = cleanFileIds(body.questionFileIds, ctx, 'question', { min: 1 });
+  const duration = cleanDuration(body.durationMinutes);
 
   const now = new Date().toISOString();
   const created = transaction(() => {
-    const ins = db.prepare(`INSERT INTO assessments (student_id, created_by, subject, unit, unit_start_date, unit_start_at, scheduled_wall, scheduled_at, timezone, status, attempt_no, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', 1, ?, ?)`);
+    const ins = db.prepare(`INSERT INTO assessments (student_id, created_by, subject, unit, unit_start_date, unit_start_at, scheduled_wall, scheduled_at, timezone, duration_minutes, status, attempt_no, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', 1, ?, ?)`);
     const ids = [];
     for (const sid of studentIds) {
-      const id = Number(ins.run(sid, ctx.account.id, subject, unit, start.date, start.iso, when.wall, when.iso, config.timezone, now, now).lastInsertRowid);
+      const id = Number(ins.run(sid, ctx.account.id, subject, unit, start.date, start.iso, when.wall, when.iso, config.timezone, duration, now, now).lastInsertRowid);
       setFiles(id, 'question', questionIds);
       ids.push(id);
     }
@@ -154,11 +170,14 @@ async function updateAssessment(req, res, ctx, idText) {
   const body = await readJson(req);
   const keys = Object.keys(body);
   if (!keys.length) throw httpError(400, 'NOTHING_TO_UPDATE', '没有要修改的内容。');
-  const allowed = a.status === 'scheduled'
-    ? ['scheduledWall', 'subject', 'unit', 'unitStartDate', 'questionFileIds', 'answerFileIds', 'score']
+  attempts.finalizeOverdue();
+  const fresh = db.prepare('SELECT * FROM assessments WHERE id = ?').get(a.id);
+  if (fresh.status === 'in_progress') throw httpError(409, 'IN_PROGRESS', '学生正在测试，完成后才能修改。');
+  const allowed = fresh.status === 'scheduled'
+    ? ['scheduledWall', 'subject', 'unit', 'unitStartDate', 'durationMinutes', 'questionFileIds', 'answerFileIds', 'score']
     : ['score', 'answerFileIds'];
   const bad = keys.filter((k) => !allowed.includes(k));
-  if (bad.length) throw httpError(409, 'NOT_EDITABLE', a.status === 'graded' ? '已评分的测试只能修改分数和答题文件，需要改时间请使用“重测”。' : '不支持修改这个内容。');
+  if (bad.length) throw httpError(409, 'NOT_EDITABLE', '已提交或已评分的测试只能修改分数和答题文件，需要改时间请使用“重测”。');
 
   let { subject, unit, unit_start_date: startDate, unit_start_at: startAt, scheduled_wall: wall, scheduled_at: at } = a;
   if ('subject' in body) subject = cleanText(body.subject, '测试科目');
@@ -171,6 +190,7 @@ async function updateAssessment(req, res, ctx, idText) {
     const s = cleanStartDate('unitStartDate' in body ? body.unitStartDate : startDate, wall);
     startDate = s.date; startAt = s.iso;
   }
+  const duration = 'durationMinutes' in body ? cleanDuration(body.durationMinutes) : a.duration_minutes;
   const questionIds = 'questionFileIds' in body ? cleanFileIds(body.questionFileIds, ctx, 'question', { min: 1 }) : null;
   const answerIds = 'answerFileIds' in body ? cleanFileIds(body.answerFileIds, ctx, 'answer', { min: 0 }) : null;
   let score = null;
@@ -181,8 +201,8 @@ async function updateAssessment(req, res, ctx, idText) {
 
   const now = new Date().toISOString();
   const removed = transaction(() => {
-    db.prepare('UPDATE assessments SET subject = ?, unit = ?, unit_start_date = ?, unit_start_at = ?, scheduled_wall = ?, scheduled_at = ?, updated_at = ? WHERE id = ?')
-      .run(subject, unit, startDate, startAt, wall, at, now, a.id);
+    db.prepare('UPDATE assessments SET subject = ?, unit = ?, unit_start_date = ?, unit_start_at = ?, scheduled_wall = ?, scheduled_at = ?, duration_minutes = ?, updated_at = ? WHERE id = ?')
+      .run(subject, unit, startDate, startAt, wall, at, duration, now, a.id);
     if (score !== null) db.prepare("UPDATE assessments SET score = ?, status = 'graded', graded_at = ?, graded_by = 'supervisor' WHERE id = ?").run(score, now, a.id);
     let gone = [];
     if (questionIds) gone = gone.concat(setFiles(a.id, 'question', questionIds));
@@ -194,9 +214,27 @@ async function updateAssessment(req, res, ctx, idText) {
   respond(res, 200, [a.id]);
 }
 
+// 学生这次测试的回答详情：每道题的文字答案、开始/提交时间、离开页面的情况
+function viewAttempt(res, ctx, idText) {
+  attempts.finalizeOverdue();
+  const a = requireAssessment(ctx, idText);
+  const att = attempts.getAttempt(a.id);
+  if (!att) return sendJson(res, 200, { attempt: null, questions: attempts.questionFiles(a.id).map((q) => Object.assign(q, { answer: null })) });
+  const answers = attempts.answersOf(att.id);
+  const questions = attempts.questionFiles(a.id).map((q) => Object.assign(q, { answer: Object.prototype.hasOwnProperty.call(answers, q.id) ? answers[q.id] : null }));
+  sendJson(res, 200, { attempt: Object.assign(attempts.publicAttempt(att), attempts.summary(att)), questions });
+}
+
+// AI 评分：接口已预留，尚未开发。以后按题目（questionFileId）或整次测试请求评分。
+async function requestAiScore(req, res, ctx, idText) {
+  requireAssessment(ctx, idText);
+  await readJson(req);
+  throw httpError(501, 'AI_SCORING_NOT_AVAILABLE', 'AI 评分功能尚未开放，接口已预留。');
+}
+
 function deleteAssessment(res, ctx, idText) {
   const a = requireAssessment(ctx, idText);
-  if (a.status !== 'scheduled') throw httpError(409, 'NOT_DELETABLE', '已评分的测试不能删除。');
+  if (a.status !== 'scheduled') throw httpError(409, 'NOT_DELETABLE', '只有还没开始的待测试才能删除。');
   const fileIds = db.prepare('SELECT file_id FROM assessment_files WHERE assessment_id = ?').all(a.id).map((r) => r.file_id);
   db.prepare('DELETE FROM assessments WHERE id = ?').run(a.id);
   files.deleteIfUnreferenced(fileIds);
@@ -212,9 +250,9 @@ async function retake(req, res, ctx, idText) {
   const start = cleanStartDate(a.unit_start_date, when.wall);
   const now = new Date().toISOString();
   const newId = transaction(() => {
-    const id = Number(db.prepare(`INSERT INTO assessments (student_id, created_by, subject, unit, unit_start_date, unit_start_at, scheduled_wall, scheduled_at, timezone, status, attempt_no, retake_of, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?, ?, ?, ?)`)
-      .run(a.student_id, ctx.account.id, a.subject, a.unit, start.date, start.iso, when.wall, when.iso, config.timezone, a.attempt_no + 1, a.id, now, now).lastInsertRowid);
+    const id = Number(db.prepare(`INSERT INTO assessments (student_id, created_by, subject, unit, unit_start_date, unit_start_at, scheduled_wall, scheduled_at, timezone, duration_minutes, status, attempt_no, retake_of, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?, ?, ?, ?)`)
+      .run(a.student_id, ctx.account.id, a.subject, a.unit, start.date, start.iso, when.wall, when.iso, config.timezone, a.duration_minutes, a.attempt_no + 1, a.id, now, now).lastInsertRowid);
     db.prepare(`INSERT INTO assessment_files (assessment_id, file_id, role, position)
       SELECT ?, file_id, role, position FROM assessment_files WHERE assessment_id = ? AND role = 'question'`).run(id, a.id);
     return id;
@@ -237,19 +275,7 @@ function downloadFile(req, res, ctx, idText) {
     ok = users.length ? users.some((r) => isLinked(ctx.account.id, r.student_id)) : f.uploaded_by === ctx.account.id;
   }
   if (!ok) throw httpError(404, 'NOT_FOUND', '没有找到这个文件。');
-  const full = files.pathFor(f.stored_name);
-  fs.stat(full, (err, st) => {
-    if (err) return sendJson(res, 404, { error: 'NOT_FOUND', message: '没有找到这个文件。' });
-    res.writeHead(200, {
-      'Content-Type': 'application/pdf',
-      'Content-Length': st.size,
-      'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(f.original_name)}`,
-      'Content-Security-Policy': "default-src 'none'; sandbox",
-      'Cache-Control': 'private, no-store'
-    });
-    if (req.method === 'HEAD') return res.end();
-    fs.createReadStream(full).pipe(res);
-  });
+  files.sendPdf(req, res, f);
 }
 
 module.exports = async function supervisorApi(req, res, pathname, ctx) {
@@ -263,6 +289,8 @@ module.exports = async function supervisorApi(req, res, pathname, ctx) {
     if (req.method === 'DELETE') return deleteAssessment(res, ctx, r[1]);
   }
   if ((r = m(/^\/api\/supervisor\/assessments\/([^/]+)\/retake$/)) && req.method === 'POST') return retake(req, res, ctx, r[1]);
+  if ((r = m(/^\/api\/supervisor\/assessments\/([^/]+)\/attempt$/)) && req.method === 'GET') return viewAttempt(res, ctx, r[1]);
+  if ((r = m(/^\/api\/supervisor\/assessments\/([^/]+)\/ai-score$/)) && req.method === 'POST') return requestAiScore(req, res, ctx, r[1]);
   if (pathname === '/api/supervisor/files' && req.method === 'POST') return uploadFile(req, res, ctx);
   if ((r = m(/^\/api\/supervisor\/files\/([^/]+)$/)) && ['GET', 'HEAD'].includes(req.method)) return downloadFile(req, res, ctx, r[1]);
   throw httpError(404, 'NOT_FOUND', '接口不存在。');

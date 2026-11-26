@@ -4,10 +4,11 @@ const path = require('path');
 
 const MAX_BODY = 64 * 1024;
 
-function httpError(status, code, message) {
+function httpError(status, code, message, extra) {
   const err = new Error(message);
   err.status = status;
   err.code = code;
+  err.extra = extra || null;
   return err;
 }
 
