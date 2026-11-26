@@ -143,6 +143,13 @@ CREATE TABLE IF NOT EXISTS question_scores (
   score INTEGER NOT NULL CHECK (score BETWEEN 1 AND 5),
   PRIMARY KEY (assessment_id, question_file_id)
 );
+-- 每道题的权重（没有记录就是默认的 1）
+CREATE TABLE IF NOT EXISTS question_weights (
+  assessment_id INTEGER NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
+  question_file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  weight INTEGER NOT NULL CHECK (weight BETWEEN 1 AND 100),
+  PRIMARY KEY (assessment_id, question_file_id)
+);
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ts TEXT NOT NULL,
@@ -153,7 +160,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 `);
 
-if (startVersion < 2) db.exec('PRAGMA user_version = 2'); // 2 = 加入每题回答 PDF 与评分（只新增表，不改旧数据）
+if (startVersion < 3) db.exec('PRAGMA user_version = 3'); // 2 = 加入每题回答 PDF 与评分；3 = 加入每题权重（都只是新增表，不改旧数据）
 
 // 事务辅助：fn 抛异常则回滚
 function transaction(fn) {

@@ -272,6 +272,7 @@ test("回顾：已评分的测试显示分数、题目、我的答案和纸质�
   await expect(page.locator(".review-q").nth(1)).toContainText("（没有填写）");
   await expect(page.locator(".review-q").first()).toContainText("Q1");
   await expect(page.locator(".review-q").first()).toContainText("评分 5 / 5");
+  await expect(page.locator(".review-q").first()).toContainText("权重 1");
   await expect(page.locator(".review-q").nth(1)).toContainText("评分 4 / 5");
   const href = await page.getByRole("link", { name: /回答 PDF：扫描答卷.pdf/ }).getAttribute("href");
   expect((await page.request.get(href)).status()).toBe(200);

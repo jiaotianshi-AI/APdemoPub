@@ -22,6 +22,8 @@ function questionRows(assessmentId, { answers = true, grades = true, text = fals
   const ans = new Map();
   for (const r of db.prepare(`SELECT qa.question_file_id AS qid, f.id, f.original_name AS name, f.size FROM question_answers qa
     JOIN files f ON f.id = qa.file_id WHERE qa.assessment_id = ?`).all(assessmentId)) ans.set(r.qid, { id: r.id, name: r.name, size: r.size });
+  const wt = new Map();
+  for (const r of db.prepare('SELECT question_file_id AS qid, weight FROM question_weights WHERE assessment_id = ?').all(assessmentId)) wt.set(r.qid, r.weight);
   const sc = new Map();
   for (const r of db.prepare('SELECT question_file_id AS qid, score FROM question_scores WHERE assessment_id = ?').all(assessmentId)) sc.set(r.qid, r.score);
   // 学生用屏幕输入作答时，每道题的回答文字（没填写为空字符串）；纸质作答或还没作答为 null
@@ -32,6 +34,7 @@ function questionRows(assessmentId, { answers = true, grades = true, text = fals
   }
   return base.map((q) => Object.assign(q, {
     label: 'Q' + q.no,
+    weight: wt.has(q.id) ? wt.get(q.id) : 1,
     answerText: typed ? (Object.prototype.hasOwnProperty.call(typed, q.id) ? typed[q.id] : '') : null,
     answerFile: answers ? (ans.get(q.id) || null) : null,
     score: grades ? (sc.has(q.id) ? sc.get(q.id) : null) : null

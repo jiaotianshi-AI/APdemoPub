@@ -377,8 +377,111 @@ test("管理员删除学生账号后，他的测试记录和不再使用的 PDF 
   expect(db.prepare("SELECT COUNT(*) AS n FROM assessments WHERE student_id = ?").get(students[0].id).n).toBe(0);
   // 文件是刚上传的（10 分钟宽限期内），不会被立刻清除，但已经没有任何人能打开
   expect((await ctx.get(`/api/supervisor/files/${f.id}`)).status()).toBe(200); // 上传者自己仍能打开未使用的文件
+  // 清理：把这个文件的上传时间改成 2 小时前，再清理“超过 60 分钟、没有被任何测试使用”的文件（不会影响并行运行的其他用例刚上传的文件）
+  db.prepare("UPDATE files SET created_at = ? WHERE id = ?").run(new Date(Date.now() - 2 * 3600000).toISOString(), f.id);
   const { gcFiles } = require("../server/files");
-  expect(gcFiles(-1)).toBeGreaterThanOrEqual(1); // 强制清理：没有被任何测试使用的文件
+  expect(gcFiles(60)).toBeGreaterThanOrEqual(1);
   expect((await ctx.get(`/api/supervisor/files/${f.id}`)).status()).toBe(404);
   await admin.dispose(); await ctx.dispose();
+});
+
+// ---- 每题权重 ----
+test("汇总评分公式（加权）：Σ(权重×评分)÷Σ权重，四舍五入（x.5 进位）；权重相同时就是普通平均", async () => {
+  const { summarize } = require("../server/scoring");
+  const cases = [
+    [[5, 3, 4], [1, 2, 1], 4],       // (5+6+4)/4 = 3.75 → 4
+    [[5, 3, 4], [1, 1, 1], 4],       // 平均 4.0
+    [[5, 3], [1, 3], 4],             // (5+9)/4 = 3.5 → 4（x.5 进位）
+    [[5, 3], [3, 1], 5],             // (15+3)/4 = 4.5 → 5
+    [[1, 5], [4, 1], 2],             // (4+5)/5 = 1.8 → 2
+    [[1, 5], [1, 4], 4],             // (1+20)/5 = 4.2 → 4
+    [[2, 2, 2], [7, 100, 1], 2],     // 全部相同分数 → 还是 2
+    [[5, 1], [100, 1], 5],           // 权重很大的题几乎决定结果：(500+1)/101 = 4.96 → 5
+    [[5, 1], [1, 100], 1]            // (5+100)/101 = 1.04 → 1
+  ];
+  for (const [s, w, expected] of cases) expect(summarize(s, w).overall, JSON.stringify([s, w])).toBe(expected);
+  expect(summarize([5, 3], [1, 3]).average).toBe(3.5);
+  expect(summarize([5, null, 3], [1, 2, 1]).overall).toBeNull();          // 有题没评
+  expect(summarize([5, null, 3], [1, 2, 1]).average).toBe(4);             // 已评部分的加权平均 (5+3)/2
+  expect(summarize([5, null, 3], [3, 2, 1]).average).toBe(4.5);           // (15+3)/4
+  expect(summarize([3, 4]).overall).toBe(4);                              // 不传权重 = 都是 1：3.5 → 4
+  expect(summarize([3, 4], [0, 1]).overall).toBe(4);                      // 无效权重按默认 1 处理（不会除以 0）：3.5 → 4
+});
+
+test("新建测试时由家长设定每题权重（默认 1）；校验；汇总评分按权重计算", async ({ playwright, baseURL }) => {
+  const { students, ctx } = await setup(playwright, baseURL, 1);
+  const q1 = await uploadPdf(ctx, "q1.pdf"), q2 = await uploadPdf(ctx, "q2.pdf"), q3 = await uploadPdf(ctx, "q3.pdf");
+  const post = (data) => ctx.post("/api/supervisor/assessments", { headers: H, data: createBody([students[0].id], [q1.id, q2.id, q3.id], data) });
+
+  // 没传权重 → 都是 1
+  let made = (await (await post({})).json()).assessments[0];
+  expect(made.questionFiles.map((q) => q.weight)).toEqual([1, 1, 1]);
+  expect(made.totalWeight).toBe(3);
+  // 校验：长度不对、非整数、0、101、负数、字符串
+  for (const bad of [[1, 2], [1, 2, 3, 4], [1, 0, 1], [1, 101, 1], [1, 1.5, 1], [1, -1, 1], [1, "2", 1], "2"]) {
+    expect((await post({ questionWeights: bad })).status(), JSON.stringify(bad)).toBe(422);
+  }
+  // 设定权重 1、2、1
+  made = (await (await post({ questionWeights: [1, 2, 1] })).json()).assessments[0];
+  expect(made.questionFiles.map((q) => [q.label, q.weight])).toEqual([["Q1", 1], ["Q2", 2], ["Q3", 1]]);
+  expect(made.totalWeight).toBe(4);
+  // Q1=5, Q2=3, Q3=4 → (5×1 + 3×2 + 4×1)/4 = 3.75 → 4（普通平均 4.0 也是 4，下面换一组区分得开的）
+  let res = await gradeAll(ctx, made, [5, 3, 4]);
+  let u = (await res.json()).assessment;
+  expect([u.status, u.score, u.scoreAverage]).toEqual(["graded", 4, 3.75]);
+  // 区分加权与不加权：Q1=5, Q2=1, Q3=5：加权 (5+2+5)/4 = 3 → 3；普通平均 3.67 → 4
+  res = await gradeAll(ctx, made, [5, 1, 5]);
+  u = (await res.json()).assessment;
+  expect([u.score, u.scoreAverage]).toEqual([3, 3]);
+  await ctx.dispose();
+});
+
+test("修改权重：待测试可用 questionWeights（需同时给题目列表）；任何状态都可用 questions[].weight；已评分的汇总随之重新计算", async ({ playwright, baseURL }) => {
+  const { students, ctx } = await setup(playwright, baseURL, 1);
+  const q1 = await uploadPdf(ctx, "q1.pdf"), q2 = await uploadPdf(ctx, "q2.pdf");
+  const [a] = await create(ctx, [students[0].id], [q1.id, q2.id]);
+  const patch = (data) => ctx.patch(`/api/supervisor/assessments/${a.id}`, { headers: H, data });
+  const body = async (r) => (await r.json()).assessment;
+
+  // questionWeights 必须和 questionFileIds 一起给
+  expect((await patch({ questionWeights: [1, 3] })).status()).toBe(422);
+  let u = await body(await patch({ questionFileIds: [q1.id, q2.id], questionWeights: [1, 3] }));
+  expect(u.questionFiles.map((q) => q.weight)).toEqual([1, 3]);
+  expect((await patch({ questionFileIds: [q1.id, q2.id], questionWeights: [1] })).status()).toBe(422);
+
+  // 评分 5、3：(5×1+3×3)/4 = 3.5 → 4
+  u = await body(await gradeAll(ctx, u, [5, 3]));
+  expect([u.status, u.score]).toEqual(["graded", 4]);
+  // 已评分后改权重：Q2 权重改成 9：(5+27)/10 = 3.2 → 3；汇总随之重新计算
+  u = await body(await patch({ questions: [{ questionFileId: q2.id, weight: 9 }] }));
+  expect([u.status, u.score, u.questionFiles[1].weight]).toEqual(["graded", 3, 9]);
+  // 权重校验
+  for (const bad of [0, 101, 2.5, "3", null]) expect((await patch({ questions: [{ questionFileId: q2.id, weight: bad }] })).status(), String(bad)).toBe(422);
+  // 只改权重不动评分/回答
+  u = await body(await patch({ questions: [{ questionFileId: q1.id, weight: 1 }, { questionFileId: q2.id, weight: 1 }] }));
+  expect([u.score, u.questionFiles.map((q) => q.score)]).toEqual([4, [5, 3]]); // (5+3)/2 = 4
+  await ctx.dispose();
+});
+
+test("权重：移除题目时一并清除；新增题目默认 1；重测复制权重（评分不复制）；旧数据默认 1", async ({ playwright, baseURL }) => {
+  const { students, ctx } = await setup(playwright, baseURL, 1);
+  const q1 = await uploadPdf(ctx, "q1.pdf"), q2 = await uploadPdf(ctx, "q2.pdf"), q3 = await uploadPdf(ctx, "q3.pdf");
+  const cr = await ctx.post("/api/supervisor/assessments", { headers: H, data: createBody([students[0].id], [q1.id, q2.id], { questionWeights: [2, 5] }) });
+  expect(cr.status(), await cr.text()).toBe(201);
+  const a = (await cr.json()).assessments[0];
+  const patch = (data) => ctx.patch(`/api/supervisor/assessments/${a.id}`, { headers: H, data });
+  // 移除 Q2、加入 q3：q1 保留权重 2；q3 没设置 → 默认 1
+  let u = (await (await patch({ questionFileIds: [q1.id, q3.id] })).json()).assessment;
+  expect(u.questionFiles.map((q) => [q.id, q.weight])).toEqual([[q1.id, 2], [q3.id, 1]]);
+  const { db } = require("../server/db");
+  expect(db.prepare("SELECT COUNT(*) AS n FROM question_weights WHERE assessment_id = ? AND question_file_id = ?").get(a.id, q2.id).n).toBe(0);
+  // 重测：复制权重，不复制评分
+  await gradeAll(ctx, u, [5, 3]);
+  const re = (await (await ctx.post(`/api/supervisor/assessments/${a.id}/retake`, { headers: H, data: { scheduledWall: "2031-07-01T10:00" } })).json()).assessments[0];
+  expect(re.questionFiles.map((q) => [q.weight, q.score])).toEqual([[2, null], [1, null]]);
+  // 删除测试后权重一并删除
+  const b = (await (await ctx.post("/api/supervisor/assessments", { headers: H, data: createBody([students[0].id], [q1.id], { questionWeights: [7] }) })).json()).assessments[0];
+  expect((await ctx.delete(`/api/supervisor/assessments/${b.id}`, { headers: H })).status()).toBe(200);
+  expect(db.prepare("SELECT COUNT(*) AS n FROM question_weights WHERE assessment_id = ?").get(b.id).n).toBe(0);
+  await ctx.dispose();
 });

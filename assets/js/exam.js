@@ -433,7 +433,7 @@
     var typed = detail.attempt && detail.attempt.method === "typed";
     qs.forEach(function (q) {
       var box = el("div", "review-q");
-      box.appendChild(el("h3", "", q.label + (graded && q.score ? "　" + t("exam.review.qScore", { s: q.score }) : "")));
+      box.appendChild(el("h3", "", q.label + (graded && q.score ? "　" + t("exam.review.qScore", { s: q.score }) + "　" + t("exam.review.weight", { w: q.weight || 1 }) : "")));
       var link = el("a", "", q.name);
       link.href = "/api/student/files/" + q.id;
       link.target = "_blank";

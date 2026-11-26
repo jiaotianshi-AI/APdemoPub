@@ -43,6 +43,12 @@ function cleanDuration(value) {
   if (!Number.isInteger(value) || value < DURATION_MIN || value > DURATION_MAX) throw httpError(422, 'INVALID_DURATION', `测试时长必须是 ${DURATION_MIN}–${DURATION_MAX} 分钟的整数。`);
   return value;
 }
+function cleanWeights(value, count) {
+  if (value === undefined || value === null) return new Array(count).fill(scoring.DEFAULT_WEIGHT);
+  if (!Array.isArray(value) || value.length !== count) throw httpError(422, 'INVALID_WEIGHTS', '每道题都需要设置权重。');
+  for (const w of value) if (!scoring.isValidWeight(w)) throw httpError(422, 'INVALID_WEIGHT', `每题的权重必须是 ${scoring.MIN_WEIGHT}–${scoring.MAX_WEIGHT} 的整数。`);
+  return value;
+}
 function cleanWall(value, { future }) {
   const t = wallToIso(value, config.timezone);
   if (!t) throw httpError(422, 'INVALID_TIME', '请选择有效的测试日期和时间。');
@@ -83,7 +89,7 @@ function attemptInfo(assessmentId) {
 }
 function serialize(a) {
   const qs = attempts.questionRows(a.id, { text: true });
-  const sum = scoring.summarize(qs.map((q) => q.score));
+  const sum = scoring.summarize(qs.map((q) => q.score), qs.map((q) => q.weight));
   return {
     id: a.id, studentId: a.student_id, subject: a.subject, unit: a.unit,
     unitStartDate: a.unit_start_date, scheduledWall: a.scheduled_wall, scheduledAt: a.scheduled_at, timezone: a.timezone,
@@ -91,7 +97,7 @@ function serialize(a) {
     status: a.status, attemptNo: a.attempt_no, retakeOf: a.retake_of, createdAt: a.created_at, gradedAt: a.graded_at,
     // 汇总评分（按 server/scoring.js 的公式由各题评分算出）；旧数据没有逐题评分时保留原来的分数
     score: a.score,
-    scoredCount: sum.scoredCount, questionCount: sum.questionCount, scoreAverage: sum.average,
+    scoredCount: sum.scoredCount, questionCount: sum.questionCount, scoreAverage: sum.average, totalWeight: sum.totalWeight,
     // 每道题：题号、题目 PDF、回答 PDF（可为空）、评分（可为空）
     questionFiles: qs,
     // 旧版本一次性上传、没有对应到具体题目的答题文件
@@ -142,6 +148,7 @@ async function createAssessments(req, res, ctx) {
   const start = cleanStartDate(body.unitStartDate, when.wall);
   const questionIds = cleanFileIds(body.questionFileIds, ctx, 'question', { min: 1 });
   const duration = cleanDuration(body.durationMinutes);
+  const weights = cleanWeights(body.questionWeights, questionIds.length);
 
   const now = new Date().toISOString();
   const created = transaction(() => {
@@ -151,6 +158,7 @@ async function createAssessments(req, res, ctx) {
     for (const sid of studentIds) {
       const id = Number(ins.run(sid, ctx.account.id, subject, unit, start.date, start.iso, when.wall, when.iso, config.timezone, duration, now, now).lastInsertRowid);
       setFiles(id, 'question', questionIds);
+      questionIds.forEach((qid, i) => db.prepare('INSERT INTO question_weights (assessment_id, question_file_id, weight) VALUES (?, ?, ?)').run(id, qid, weights[i]));
       ids.push(id);
     }
     return ids;
@@ -164,7 +172,8 @@ async function createAssessments(req, res, ctx) {
 function recomputeGrade(assessmentId, nowIso) {
   const a = db.prepare('SELECT * FROM assessments WHERE id = ?').get(assessmentId);
   if (a.status === 'in_progress') return;
-  const sum = scoring.summarize(attempts.questionRows(assessmentId).map((q) => q.score));
+  const rowsNow = attempts.questionRows(assessmentId);
+  const sum = scoring.summarize(rowsNow.map((q) => q.score), rowsNow.map((q) => q.weight));
   if (sum.overall !== null) {
     db.prepare("UPDATE assessments SET status = 'graded', score = ?, graded_at = ?, graded_by = 'supervisor', updated_at = ? WHERE id = ?")
       .run(sum.overall, a.status === 'graded' && a.graded_at ? a.graded_at : nowIso, nowIso, assessmentId);
@@ -181,7 +190,7 @@ function cleanQuestionUpdates(value, validQuestionIds, ctx) {
   const out = [];
   for (const item of value) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) throw httpError(422, 'INVALID_QUESTIONS', '题目评分/回答的格式不正确。');
-    const bad = Object.keys(item).filter((k) => !['questionFileId', 'answerFileId', 'score'].includes(k));
+    const bad = Object.keys(item).filter((k) => !['questionFileId', 'answerFileId', 'score', 'weight'].includes(k));
     if (bad.length) throw httpError(422, 'INVALID_QUESTIONS', '题目评分/回答里有不支持的内容。');
     const qid = item.questionFileId;
     if (!Number.isInteger(qid) || !validQuestionIds.includes(qid)) throw httpError(422, 'INVALID_QUESTION', '有题目不属于这场测试。');
@@ -191,6 +200,10 @@ function cleanQuestionUpdates(value, validQuestionIds, ctx) {
     if ('score' in item) {
       if (item.score !== null && !scoring.isValidScore(item.score)) throw httpError(422, 'INVALID_SCORE', `每题的评分必须是 ${scoring.MIN_SCORE}–${scoring.MAX_SCORE} 的整数，或留空。`);
       u.score = item.score;
+    }
+    if ('weight' in item) {
+      if (!scoring.isValidWeight(item.weight)) throw httpError(422, 'INVALID_WEIGHT', `每题的权重必须是 ${scoring.MIN_WEIGHT}–${scoring.MAX_WEIGHT} 的整数。`);
+      u.weight = item.weight;
     }
     if ('answerFileId' in item) {
       if (item.answerFileId !== null) cleanFileIds([item.answerFileId], ctx, 'answer', { min: 1 });
@@ -210,10 +223,10 @@ async function updateAssessment(req, res, ctx, idText) {
   const fresh = db.prepare('SELECT * FROM assessments WHERE id = ?').get(a.id);
   if (fresh.status === 'in_progress') throw httpError(409, 'IN_PROGRESS', '学生正在测试，完成后才能修改。');
   const allowed = fresh.status === 'scheduled'
-    ? ['scheduledWall', 'subject', 'unit', 'unitStartDate', 'durationMinutes', 'questionFileIds', 'questions']
+    ? ['scheduledWall', 'subject', 'unit', 'unitStartDate', 'durationMinutes', 'questionFileIds', 'questionWeights', 'questions']
     : ['questions'];
   const bad = keys.filter((k) => !allowed.includes(k));
-  if (bad.length) throw httpError(409, 'NOT_EDITABLE', fresh.status === 'scheduled' ? '不支持修改这个内容。' : '已提交或已评分的测试只能修改每题的回答文件和评分，需要改时间请使用“重测”。');
+  if (bad.length) throw httpError(409, 'NOT_EDITABLE', fresh.status === 'scheduled' ? '不支持修改这个内容。' : '已提交或已评分的测试只能修改每题的回答文件、评分和权重，需要改时间请使用“重测”。');
 
   let { subject, unit, unit_start_date: startDate, unit_start_at: startAt, scheduled_wall: wall, scheduled_at: at } = a;
   if ('subject' in body) subject = cleanText(body.subject, '测试科目');
@@ -228,6 +241,8 @@ async function updateAssessment(req, res, ctx, idText) {
   }
   const duration = 'durationMinutes' in body ? cleanDuration(body.durationMinutes) : a.duration_minutes;
   const questionIds = 'questionFileIds' in body ? cleanFileIds(body.questionFileIds, ctx, 'question', { min: 1 }) : null;
+  if ('questionWeights' in body && !questionIds) throw httpError(422, 'INVALID_WEIGHTS', '修改题目权重时需要同时提供题目文件列表（questionFileIds），或改用 questions 里的 weight。');
+  const newWeights = 'questionWeights' in body ? cleanWeights(body.questionWeights, questionIds.length) : null;
   const currentQuestionIds = attempts.questionFiles(a.id).map((q) => q.id);
   const updates = 'questions' in body ? cleanQuestionUpdates(body.questions, questionIds || currentQuestionIds, ctx) : null;
 
@@ -248,8 +263,11 @@ async function updateAssessment(req, res, ctx, idText) {
         }
         db.prepare('DELETE FROM question_answers WHERE assessment_id = ? AND question_file_id = ?').run(a.id, q);
         db.prepare('DELETE FROM question_scores WHERE assessment_id = ? AND question_file_id = ?').run(a.id, q);
+        db.prepare('DELETE FROM question_weights WHERE assessment_id = ? AND question_file_id = ?').run(a.id, q);
       }
+      // 新加入的题目默认权重 1（没有记录即为 1），按需要由 questionWeights 设置
     }
+    if (newWeights) questionIds.forEach((qid, i) => db.prepare('INSERT OR REPLACE INTO question_weights (assessment_id, question_file_id, weight) VALUES (?, ?, ?)').run(a.id, qid, newWeights[i]));
     if (updates) {
       for (const u of updates) {
         if ('answerFileId' in u) {
@@ -266,6 +284,7 @@ async function updateAssessment(req, res, ctx, idText) {
             db.prepare('INSERT OR REPLACE INTO question_answers (assessment_id, question_file_id, file_id) VALUES (?, ?, ?)').run(a.id, u.questionFileId, u.answerFileId);
           }
         }
+        if ('weight' in u) db.prepare('INSERT OR REPLACE INTO question_weights (assessment_id, question_file_id, weight) VALUES (?, ?, ?)').run(a.id, u.questionFileId, u.weight);
         if ('score' in u) {
           if (u.score === null) db.prepare('DELETE FROM question_scores WHERE assessment_id = ? AND question_file_id = ?').run(a.id, u.questionFileId);
           else db.prepare('INSERT OR REPLACE INTO question_scores (assessment_id, question_file_id, score) VALUES (?, ?, ?)').run(a.id, u.questionFileId, u.score);
@@ -273,7 +292,7 @@ async function updateAssessment(req, res, ctx, idText) {
       }
     }
     // 只有评分或题目发生变化时才重新计算（只传回答 PDF 不会动旧数据里的分数）
-    if (questionIds || (updates && updates.some((u) => 'score' in u))) recomputeGrade(a.id, now);
+    if (questionIds || newWeights || (updates && updates.some((u) => 'score' in u || 'weight' in u))) recomputeGrade(a.id, now);
     return gone;
   });
   files.deleteIfUnreferenced(removed);
@@ -323,6 +342,8 @@ async function retake(req, res, ctx, idText) {
       .run(a.student_id, ctx.account.id, a.subject, a.unit, start.date, start.iso, when.wall, when.iso, config.timezone, a.duration_minutes, a.attempt_no + 1, a.id, now, now).lastInsertRowid);
     db.prepare(`INSERT INTO assessment_files (assessment_id, file_id, role, position)
       SELECT ?, file_id, role, position FROM assessment_files WHERE assessment_id = ? AND role = 'question'`).run(id, a.id);
+    db.prepare(`INSERT INTO question_weights (assessment_id, question_file_id, weight)
+      SELECT ?, question_file_id, weight FROM question_weights WHERE assessment_id = ?`).run(id, a.id);
     return id;
   });
   audit(ctx.account.username, 'retake_assessment', String(a.id), `新记录 ${newId}`);

@@ -4,7 +4,7 @@
 
   var STATUS = { scheduled: "待测试", in_progress: "测试中", submitted: "已提交，待评分", graded: "已评分" };
   // 汇总评分公式说明（计算本身在服务器 server/scoring.js；要改公式时两处一起改）
-  var FORMULA_TEXT = "汇总评分 = 各题评分的平均值，四舍五入到整数（x.5 进位）。每道题都有评分后自动算出，状态变为“已评分”；任何一题评分为空，则不计算汇总。每题评分为 1–5 的整数。";
+  var FORMULA_TEXT = "汇总评分 = 各题评分的加权平均值，四舍五入到整数（x.5 进位）：加权平均 = Σ（权重 × 评分）÷ Σ权重。权重是 1–100 的整数（默认 1，所有题权重相同时就是普通平均），权重越大，这道题对汇总评分影响越大。每题评分为 1–5 的整数。每道题都有评分后自动算出汇总，状态变为“已评分”；任何一题评分为空，则不计算汇总。";
   var MAX_FILES = 10;
   var MAX_BYTES = 20 * 1024 * 1024;
   var state = { students: [], currentId: null, assessments: [] };
@@ -82,7 +82,7 @@
   /* ---------- 文件列表（上传 PDF） ---------- */
   function fileList(host, initial, label) {
     clear(host);
-    var items = initial.map(function (f) { return { id: f.id, name: f.name, size: f.size }; });
+    var items = initial.map(function (f) { return { id: f.id, name: f.name, size: f.size, weight: f.weight || 1 }; });
     var uploading = 0;
     var ul = el("ul", "file-list");
     var picker = el("label", "picker-btn", "添加 PDF");
@@ -102,7 +102,20 @@
       if (!items.length) ul.appendChild(el("li", "muted", "还没有文件。"));
       items.forEach(function (f, i) {
         var li = el("li", "file-item");
-        li.appendChild(el("span", "fname", f.name + "（" + fmtSize(f.size) + "）"));
+        li.appendChild(el("span", "fname", "Q" + (i + 1) + "　" + f.name + "（" + fmtSize(f.size) + "）"));
+        var wl = el("label", "weight-label", "权重");
+        var wi = el("input");
+        wi.type = "number";
+        wi.min = "1";
+        wi.max = "100";
+        wi.step = "1";
+        wi.value = String(f.weight);
+        wi.className = "weight-input";
+        wi.setAttribute("inputmode", "numeric");
+        wi.setAttribute("aria-label", "Q" + (i + 1) + " " + f.name + " 的权重（1–100 的整数）");
+        wi.addEventListener("input", function () { f.weight = wi.value === "" ? NaN : Number(wi.value); });
+        wl.appendChild(wi);
+        li.appendChild(wl);
         var rm = el("button", "btn", "移除");
         rm.type = "button";
         rm.setAttribute("aria-label", "移除 " + f.name);
@@ -118,7 +131,7 @@
       if (items.length >= MAX_FILES) return Promise.reject(new Error("最多 " + MAX_FILES + " 个文件。"));
       note.textContent = "正在上传 " + file.name + " …";
       return request("POST", "/api/supervisor/files", undefined, { "Content-Type": "application/pdf", "X-File-Name": encodeURIComponent(file.name) }, file)
-        .then(function (data) { items.push(data.file); render(); });
+        .then(function (data) { items.push({ id: data.file.id, name: data.file.name, size: data.file.size, weight: 1 }); render(); });
     }
 
     input.addEventListener("change", function () {
@@ -140,7 +153,11 @@
     host.appendChild(wrap);
     host.appendChild(note);
     render();
-    return { ids: function () { return items.map(function (f) { return f.id; }); }, busy: function () { return uploading > 0; } };
+    return {
+      ids: function () { return items.map(function (f) { return f.id; }); },
+      weights: function () { return items.map(function (f) { return f.weight; }); },
+      busy: function () { return uploading > 0; }
+    };
   }
 
   /* ---------- 学生列表 ---------- */
@@ -214,7 +231,7 @@
 
   function overallText(a) {
     if (a.score) {
-      var avg = a.scoreAverage !== null && a.scoreAverage !== undefined && a.scoredCount === a.questionCount ? "（平均 " + (Math.round(a.scoreAverage * 100) / 100) + "）" : "";
+      var avg = a.scoreAverage !== null && a.scoreAverage !== undefined && a.scoredCount === a.questionCount ? "（加权平均 " + (Math.round(a.scoreAverage * 100) / 100) + "）" : "";
       return a.score + " / 5" + avg;
     }
     return a.questionCount ? "— （已评 " + a.scoredCount + " / " + a.questionCount + " 题）" : "—";
@@ -224,7 +241,7 @@
   function questionTable(a) {
     var wrap = el("div", "q-table");
     var head = el("div", "q-row q-head");
-    ["题号", "问题 PDF", "回答文字", "回答 PDF", "评分"].forEach(function (h) { head.appendChild(el("span", "", h)); });
+    ["题号", "问题 PDF", "权重", "回答文字", "回答 PDF", "评分"].forEach(function (h) { head.appendChild(el("span", "", h)); });
     wrap.appendChild(head);
     a.questionFiles.forEach(function (q) {
       var row = el("div", "q-row");
@@ -235,6 +252,7 @@
       ql.rel = "noopener noreferrer";
       ql.setAttribute("aria-label", q.label + " 问题：" + q.name + "（在新标签页打开）");
       row.appendChild(ql);
+      row.appendChild(el("span", "q-weight", "×" + (q.weight || 1)));
       // 回答文字：学生用屏幕输入作答时才有；纸质作答或还没作答显示 —
       var tcell = el("span");
       if (q.answerText === null || q.answerText === undefined) tcell.appendChild(el("span", "muted", "—"));
@@ -475,10 +493,12 @@
     if (testForm.files.busy()) return showMsg("test-error", "文件还在上传，请稍等。");
     var fileIds = testForm.files.ids();
     if (!fileIds.length) return showMsg("test-error", "请至少上传一个题目 PDF。");
+    var weights = testForm.files.weights();
+    if (weights.some(function (w) { return !Number.isInteger(w) || w < 1 || w > 100; })) return showMsg("test-error", "每道题的权重必须是 1–100 的整数。");
 
     var duration = Number($("t-duration").value);
     if (!Number.isInteger(duration) || duration < 5 || duration > 300) return showMsg("test-error", "测试时长必须是 5–300 分钟的整数。");
-    var body = { scheduledWall: date + "T" + time, subject: subject, unit: unit, unitStartDate: start, durationMinutes: duration, questionFileIds: fileIds };
+    var body = { scheduledWall: date + "T" + time, subject: subject, unit: unit, unitStartDate: start, durationMinutes: duration, questionFileIds: fileIds, questionWeights: weights };
     var req;
     if (testForm.mode === "create") { body.studentIds = studentIds; req = api("POST", "/api/supervisor/assessments", body); }
     else req = api("PATCH", "/api/supervisor/assessments/" + testForm.assessment.id, body);
@@ -542,16 +562,20 @@
     return { value: function () { return current ? current.id : null; }, busy: function () { return busy > 0; } };
   }
 
-  function summarizeScores(scores) { // 与服务器 server/scoring.js 的公式一致，只用于预览
-    var have = scores.filter(function (v) { return v !== null; });
-    var n = scores.length, sum = have.reduce(function (a, b) { return a + b; }, 0);
-    return { scored: have.length, total: n, avg: have.length ? sum / have.length : null, overall: n > 0 && have.length === n ? Math.floor((2 * sum + n) / (2 * n)) : null };
+  function summarizeScores(scores, weights) { // 与服务器 server/scoring.js 的公式一致，只用于预览
+    var num = 0, den = 0, scored = 0, n = scores.length;
+    scores.forEach(function (s, i) {
+      var w = Number.isInteger(weights[i]) && weights[i] >= 1 && weights[i] <= 100 ? weights[i] : 1;
+      if (s !== null) { num += w * s; den += w; scored += 1; }
+    });
+    return { scored: scored, total: n, avg: den ? num / den : null, overall: n > 0 && scored === n ? Math.floor((2 * num + den) / (2 * den)) : null };
   }
   function updateOverall() {
     var scores = gradeForm.rows.map(function (r) { return r.select.value === "" ? null : Number(r.select.value); });
-    var s = summarizeScores(scores);
+    var weights = gradeForm.rows.map(function (r) { return r.weight.value === "" ? NaN : Number(r.weight.value); });
+    var s = summarizeScores(scores, weights);
     $("grade-overall").textContent = s.overall !== null
-      ? "汇总评分：" + s.overall + " / 5（平均 " + (Math.round(s.avg * 100) / 100) + "）。保存后这场测试的状态为“已评分”。"
+      ? "汇总评分：" + s.overall + " / 5（加权平均 " + (Math.round(s.avg * 100) / 100) + "）。保存后这场测试的状态为“已评分”。"
       : "汇总评分：还不能计算（已评 " + s.scored + " / " + s.total + " 题）。";
   }
 
@@ -581,6 +605,21 @@
       var ansHost = el("div", "ans-host");
       var picker = answerPicker(ansHost, q.answerFile, q.label);
       box.appendChild(ansHost);
+      var wf = el("div", "field");
+      var wl = el("label", "", q.label + " 权重（1–100 的整数）");
+      var wi = el("input");
+      wi.type = "number";
+      wi.min = "1";
+      wi.max = "100";
+      wi.step = "1";
+      wi.id = "weight-" + q.id;
+      wi.value = String(q.weight || 1);
+      wi.setAttribute("inputmode", "numeric");
+      wl.htmlFor = wi.id;
+      wi.addEventListener("input", updateOverall);
+      wf.appendChild(wl);
+      wf.appendChild(wi);
+      box.appendChild(wf);
       var f = el("div", "field");
       var l = el("label", "", q.label + " 评分");
       var sel = el("select");
@@ -596,7 +635,7 @@
       f.appendChild(sel);
       box.appendChild(f);
       host.appendChild(box);
-      gradeForm.rows.push({ q: q, picker: picker, select: sel });
+      gradeForm.rows.push({ q: q, picker: picker, select: sel, weight: wi });
     });
     updateOverall();
     openDialog($("score-dialog"));
@@ -609,8 +648,10 @@
     showMsg("score-error", "");
     if (gradeForm.rows.some(function (r) { return r.picker.busy(); })) return showMsg("score-error", "文件还在上传，请稍等。");
     var a = gradeForm.assessment;
+    var bad = gradeForm.rows.filter(function (r) { var w = Number(r.weight.value); return r.weight.value === "" || !Number.isInteger(w) || w < 1 || w > 100; });
+    if (bad.length) return showMsg("score-error", "每道题的权重必须是 1–100 的整数。");
     var questions = gradeForm.rows.map(function (r) {
-      return { questionFileId: r.q.id, answerFileId: r.picker.value(), score: r.select.value === "" ? null : Number(r.select.value) };
+      return { questionFileId: r.q.id, answerFileId: r.picker.value(), score: r.select.value === "" ? null : Number(r.select.value), weight: Number(r.weight.value) };
     });
     $("score-submit").disabled = true;
     api("PATCH", "/api/supervisor/assessments/" + a.id, { questions: questions }).then(function (data) {
