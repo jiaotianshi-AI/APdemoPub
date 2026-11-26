@@ -4,19 +4,149 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
-  <title>家长/老师端</title>
+  <title>家长/老师端 - 测试管理</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="/assets/css/auth.css">
+  <link rel="stylesheet" href="/assets/css/supervisor.css">
 </head>
 <body>
-  <main class="center-page">
-    <div class="auth-card">
-      <p class="brand">AP 专注学习</p>
-      <h1>家长/老师端</h1>
-      <p class="lead">家长/老师端正在建设中。</p>
-      <div class="actions"><button type="button" class="btn" id="logout-btn">退出登录</button></div>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">AP 专注学习 · 家长/老师端</div>
+      <div class="topbar-right">
+        <span class="who" id="whoami"></span>
+        <button type="button" class="btn" id="logout-btn">退出登录</button>
+      </div>
     </div>
+  </header>
+
+  <main class="sup">
+    <aside class="students" aria-labelledby="students-title">
+      <h2 id="students-title">我的学生</h2>
+      <ul id="student-list" class="student-list"></ul>
+      <p id="no-students" class="muted" hidden>管理员还没有给你关联学生，请联系管理员。</p>
+    </aside>
+
+    <section class="content" aria-labelledby="student-title">
+      <div class="content-head">
+        <div>
+          <h1 id="student-title">测试管理</h1>
+          <p id="student-sub" class="muted"></p>
+        </div>
+        <button type="button" class="btn primary" id="new-btn">新建测试</button>
+      </div>
+      <p id="status" class="status" role="status"></p>
+      <div id="lists"></div>
+    </section>
   </main>
+
+  <!-- 新建 / 修改测试 -->
+  <dialog id="test-dialog" aria-labelledby="test-title">
+    <form id="test-form" novalidate>
+      <h2 id="test-title">新建测试</h2>
+      <div id="target-box"></div>
+      <div class="row">
+        <div class="field">
+          <label for="t-date">测试日期</label>
+          <input id="t-date" type="date" required>
+        </div>
+        <div class="field">
+          <label for="t-time">测试时间</label>
+          <input id="t-time" type="time" required>
+        </div>
+      </div>
+      <p class="hint">日期和时间按<strong>温哥华时间</strong>。</p>
+      <div class="field">
+        <label for="t-start">本单元开始学习日期</label>
+        <input id="t-start" type="date" required>
+        <span class="hint">学生页的学习进度 = 从这一天到测试时间，已经走过的比例。</span>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="t-subject">测试科目</label>
+          <input id="t-subject" type="text" maxlength="64" placeholder="例如 AP Biology" autocomplete="off" required>
+        </div>
+        <div class="field">
+          <label for="t-unit">测试单元</label>
+          <input id="t-unit" type="text" maxlength="64" placeholder="例如 Unit 2" autocomplete="off" required>
+        </div>
+      </div>
+      <div class="field">
+        <span class="label" id="q-label">测试题目清单（PDF，可多个）</span>
+        <div id="q-files" aria-labelledby="q-label"></div>
+      </div>
+      <p id="test-error" class="msg error" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn" data-close>取消</button>
+        <button type="submit" class="btn primary" id="test-submit">提交</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 答题与分数 -->
+  <dialog id="score-dialog" aria-labelledby="score-title">
+    <form id="score-form" novalidate>
+      <h2 id="score-title">答题与分数</h2>
+      <p id="score-summary" class="muted"></p>
+      <div class="field">
+        <span class="label" id="a-label">学生答题内容（PDF，可多个）</span>
+        <div id="a-files" aria-labelledby="a-label"></div>
+      </div>
+      <div class="field">
+        <label for="s-score">测试分数（1–5 的整数）</label>
+        <select id="s-score">
+          <option value="">未评分</option>
+          <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+          <option value="4">4</option><option value="5">5</option>
+        </select>
+        <span class="hint">录入分数后，这条测试的状态会变为“已评分”。</span>
+      </div>
+      <p id="score-error" class="msg error" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn" data-close>取消</button>
+        <button type="submit" class="btn primary" id="score-submit">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 重测 -->
+  <dialog id="retake-dialog" aria-labelledby="retake-title">
+    <form id="retake-form" novalidate>
+      <h2 id="retake-title">重测</h2>
+      <p id="retake-summary"></p>
+      <p class="hint">会复制科目、单元和题目文件，生成一条新的“待测试”记录；原来的记录和分数保留。</p>
+      <div class="row">
+        <div class="field">
+          <label for="r-date">新的测试日期</label>
+          <input id="r-date" type="date" required>
+        </div>
+        <div class="field">
+          <label for="r-time">新的测试时间</label>
+          <input id="r-time" type="time" required>
+        </div>
+      </div>
+      <p class="hint">按温哥华时间。</p>
+      <p id="retake-error" class="msg error" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn" data-close>取消</button>
+        <button type="submit" class="btn primary" id="retake-submit">生成重测</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 确认 -->
+  <dialog id="confirm-dialog" aria-labelledby="confirm-title">
+    <div>
+      <h2 id="confirm-title">请确认</h2>
+      <p id="confirm-message"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn" data-close>取消</button>
+        <button type="button" class="btn danger" id="confirm-ok">确认</button>
+      </div>
+    </div>
+  </dialog>
+
   <script src="/assets/js/page-common.js"></script>
+  <script src="/assets/js/supervisor.js"></script>
 </body>
 </html>

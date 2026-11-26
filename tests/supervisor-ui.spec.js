@@ -1,0 +1,306 @@
+// /supervisor 页面界面测试
+const { test, expect } = require("@playwright/test");
+const AxeBuilder = require("@axe-core/playwright").default;
+const { ANON, H, uid, PASSWORD, makeUser, linkSupervisor, pdf } = require("./helpers");
+
+test.use({ storageState: ANON, viewport: { width: 1180, height: 820 } });
+
+async function loginAs(page, username) {
+  const res = await page.request.post("/api/login", { headers: H, data: { username, password: PASSWORD } });
+  expect(res.status()).toBe(200);
+}
+async function setup(page, nStudents = 2) {
+  const sup = await makeUser("supervisor", "supui");
+  const students = [];
+  for (let i = 0; i < nStudents; i++) {
+    const s = await makeUser("student", "stuui" + i);
+    linkSupervisor(sup.id, s.id);
+    students.push(s);
+  }
+  await loginAs(page, sup.username);
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
+  await page.goto("/supervisor");
+  await page.waitForFunction(() => document.querySelector("#student-list .student-btn") || !document.getElementById("no-students").hidden);
+  return { sup, students, errors };
+}
+const file = (name) => ({ name, mimeType: "application/pdf", buffer: pdf(name) });
+async function fillTest(page, { date = "2031-03-15", time = "15:00", start = "2031-03-01", subject = "AP Biology", unit, files = ["题目1.pdf"] }) {
+  await page.fill("#t-date", date);
+  await page.fill("#t-time", time);
+  await page.fill("#t-start", start);
+  await page.fill("#t-subject", subject);
+  await page.fill("#t-unit", unit);
+  if (files.length) {
+    await page.locator("#q-files input[type=file]").setInputFiles(files.map(file));
+    for (const f of files) await expect(page.locator("#q-files .file-item", { hasText: f })).toBeVisible();
+  }
+}
+const card = (page, unit) => page.locator(".test-card", { hasText: unit });
+async function createVia(page, unit, opts = {}) {
+  await page.click("#new-btn");
+  if (opts.all) await page.locator("#target-box .check.all input").check();
+  await fillTest(page, { unit, ...opts });
+  await page.click("#test-submit");
+  await expect(page.locator("#test-dialog")).toBeHidden();
+}
+
+test("只显示自己关联的学生；点击切换学生", async ({ page }) => {
+  const { students } = await setup(page, 2);
+  const stranger = await makeUser("student", "stranger");
+  await page.reload();
+  const buttons = page.locator("#student-list .student-btn");
+  await expect(buttons).toHaveCount(2);
+  await expect(page.locator("#student-list")).not.toContainText(stranger.username);
+  await expect(page.locator("#student-title")).toHaveText(students.map((s) => s.username).sort()[0]);
+  await buttons.nth(1).click();
+  await expect(page.locator("#student-title")).toHaveText(students.map((s) => s.username).sort()[1]);
+  await expect(buttons.nth(1)).toHaveAttribute("aria-current", "true");
+});
+
+test("没有关联学生时的提示", async ({ page }) => {
+  await setup(page, 0);
+  await expect(page.locator("#no-students")).toBeVisible();
+  await expect(page.locator("#new-btn")).toBeDisabled();
+});
+
+test("新建测试：选“所有学生”，每个学生各得一条；字段显示正确；题目 PDF 可打开", async ({ page }) => {
+  const { students } = await setup(page, 2);
+  const unit = "Unit " + uid("u");
+  await page.click("#new-btn");
+  await expect(page.locator("#test-dialog")).toBeVisible();
+  await page.locator("#target-box .check.all input").check();
+  for (const c of await page.locator("#target-box .check:not(.all) input").all()) await expect(c).toBeChecked();
+  await fillTest(page, { unit, files: ["题目1.pdf", "题目2.pdf"] });
+  await page.click("#test-submit");
+  await expect(page.locator("#test-dialog")).toBeHidden();
+  await expect(page.locator("#status")).toContainText("已为 2 个学生新建测试");
+
+  const c = card(page, unit);
+  await expect(c).toHaveCount(1);
+  await expect(c).toContainText("AP Biology · " + unit);
+  await expect(c).toContainText("待测试");
+  await expect(c).toContainText("2031年3月15日 3:00 PM（温哥华时间）");
+  await expect(c).toContainText("2031年3月1日");
+  await expect(c).toContainText("题目1.pdf");
+  await expect(c).toContainText("题目2.pdf");
+  const href = await c.locator("a.file-link").first().getAttribute("href");
+  expect(href).toMatch(/^\/api\/supervisor\/files\/\d+$/);
+  expect(await c.locator("a.file-link").first().getAttribute("rel")).toContain("noopener");
+  const pdfRes = await page.request.get(href);
+  expect(pdfRes.status()).toBe(200);
+  expect(pdfRes.headers()["content-type"]).toBe("application/pdf");
+
+  // 另一个学生也有这条
+  const other = page.locator("#student-list .student-btn").nth(1);
+  await other.click();
+  await expect(card(page, unit)).toHaveCount(1);
+});
+
+test("新建测试的校验提示；只接受 PDF", async ({ page }) => {
+  await setup(page, 1);
+  await page.click("#new-btn");
+  await page.locator("#target-box .check:not(.all) input").uncheck();
+  await page.click("#test-submit");
+  await expect(page.locator("#test-error")).toContainText("请至少选择一个学生");
+  await page.locator("#target-box .check:not(.all) input").check();
+  await page.click("#test-submit");
+  await expect(page.locator("#test-error")).toContainText("测试日期和时间");
+  await page.fill("#t-date", "2031-03-15"); await page.fill("#t-time", "15:00");
+  await page.click("#test-submit");
+  await expect(page.locator("#test-error")).toContainText("开始学习日期");
+  await page.fill("#t-start", "2031-03-01");
+  await page.click("#test-submit");
+  await expect(page.locator("#test-error")).toContainText("测试科目");
+  await page.fill("#t-subject", "AP Biology");
+  await page.click("#test-submit");
+  await expect(page.locator("#test-error")).toContainText("测试单元");
+  await page.fill("#t-unit", "Unit 1");
+  await page.click("#test-submit");
+  await expect(page.locator("#test-error")).toContainText("至少上传一个题目 PDF");
+
+  await page.locator("#q-files input[type=file]").setInputFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("hello") });
+  await expect(page.locator("#q-files .upload-note")).toContainText("不是 PDF");
+  await page.locator("#q-files input[type=file]").setInputFiles({ name: "fake.pdf", mimeType: "application/pdf", buffer: Buffer.from("not really a pdf") });
+  await expect(page.locator("#q-files .upload-note")).toContainText("不是有效的 PDF");
+  await page.fill("#t-start", "2031-04-01"); // 晚于测试日
+  await page.locator("#q-files input[type=file]").setInputFiles(file("ok.pdf"));
+  await expect(page.locator("#q-files .file-item")).toHaveCount(1);
+  await page.click("#test-submit");
+  await expect(page.locator("#test-error")).toContainText("不能晚于测试日期");
+  await page.fill("#t-date", "2020-01-01"); await page.fill("#t-start", "2019-12-01");
+  await page.click("#test-submit");
+  await expect(page.locator("#test-error")).toContainText("必须晚于现在");
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#new-btn")).toBeFocused();
+});
+
+test("修改待测试：改时间、单元，增删题目文件；删除要确认", async ({ page }) => {
+  await setup(page, 1);
+  const unit = "Unit " + uid("e");
+  await createVia(page, unit, { files: ["a.pdf"] });
+  const c = card(page, unit);
+  await c.getByRole("button", { name: /^修改：/ }).click();
+  await expect(page.locator("#test-title")).toHaveText("修改测试");
+  await expect(page.locator("#t-date")).toHaveValue("2031-03-15");
+  await expect(page.locator("#target-box")).toContainText("学生：");
+  await page.fill("#t-date", "2031-03-22");
+  await page.fill("#t-time", "10:30");
+  await page.fill("#t-unit", unit + "b");
+  await page.locator("#q-files input[type=file]").setInputFiles(file("b.pdf"));
+  await expect(page.locator("#q-files .file-item")).toHaveCount(2);
+  await page.getByRole("button", { name: "移除 a.pdf" }).click();
+  await page.click("#test-submit");
+  await expect(page.locator("#test-dialog")).toBeHidden();
+  const c2 = card(page, unit + "b");
+  await expect(c2).toContainText("2031年3月22日 10:30 AM（温哥华时间）");
+  await expect(c2).toContainText("b.pdf");
+  await expect(c2).not.toContainText("a.pdf");
+
+  await c2.getByRole("button", { name: /^删除：/ }).click();
+  await page.click("#confirm-dialog [data-close]");
+  await expect(c2).toBeVisible();
+  await c2.getByRole("button", { name: /^删除：/ }).click();
+  await page.click("#confirm-ok");
+  await expect(card(page, unit + "b")).toHaveCount(0);
+});
+
+test("答题与分数：上传答题 PDF、录入分数后变为已评分；已评分只有修改分数/重测", async ({ page }) => {
+  await setup(page, 1);
+  const unit = "Unit " + uid("s");
+  await createVia(page, unit);
+  const c = card(page, unit);
+  await c.getByRole("button", { name: /^答题与分数：/ }).click();
+  await page.locator("#a-files input[type=file]").setInputFiles([file("答题1.pdf"), file("答题2.pdf")]);
+  await expect(page.locator("#a-files .file-item")).toHaveCount(2);
+  await page.selectOption("#s-score", "4");
+  await page.click("#score-submit");
+  await expect(page.locator("#score-dialog")).toBeHidden();
+  await expect(c).toContainText("已评分");
+  await expect(c).toContainText("4 / 5");
+  await expect(c).toContainText("答题1.pdf");
+  await expect(c.getByRole("button", { name: /^修改：/ })).toHaveCount(0);
+  await expect(c.getByRole("button", { name: /^删除：/ })).toHaveCount(0);
+  await expect(c.getByRole("button", { name: /^修改分数：/ })).toBeVisible();
+  await expect(c.getByRole("button", { name: /^重测：/ })).toBeVisible();
+
+  await c.getByRole("button", { name: /^修改分数：/ }).click();
+  await expect(page.locator("#s-score")).toHaveValue("4");
+  await page.selectOption("#s-score", "");
+  await page.click("#score-submit");
+  await expect(page.locator("#score-error")).toContainText("不能清除分数");
+  await page.selectOption("#s-score", "5");
+  await page.click("#score-submit");
+  await expect(c).toContainText("5 / 5");
+});
+
+test("重测：生成一条新的待测试记录，原记录保留", async ({ page }) => {
+  await setup(page, 1);
+  const unit = "Unit " + uid("r");
+  await createVia(page, unit);
+  await card(page, unit).getByRole("button", { name: /^答题与分数：/ }).click();
+  await page.selectOption("#s-score", "2");
+  await page.click("#score-submit");
+  await expect(page.locator("#score-dialog")).toBeHidden();
+
+  await card(page, unit).getByRole("button", { name: /^重测：/ }).click();
+  await expect(page.locator("#retake-summary")).toContainText("分数 2 / 5");
+  await page.click("#retake-submit");
+  await expect(page.locator("#retake-error")).toContainText("新的测试日期和时间");
+  await page.fill("#r-date", "2020-01-01"); await page.fill("#r-time", "10:00");
+  await page.click("#retake-submit");
+  await expect(page.locator("#retake-error")).toContainText("必须晚于现在");
+  await page.fill("#r-date", "2031-04-12"); await page.fill("#r-time", "15:00");
+  await page.click("#retake-submit");
+  await expect(page.locator("#retake-dialog")).toBeHidden();
+
+  const cards = card(page, unit);
+  await expect(cards).toHaveCount(2);
+  const fresh = cards.filter({ hasText: "第 2 次" });
+  await expect(fresh).toContainText("待测试");
+  await expect(fresh).toContainText("2031年4月12日 3:00 PM");
+  await expect(fresh).toContainText("题目1.pdf");
+  await expect(fresh).toContainText("—"); // 无分数
+  const old = cards.filter({ hasText: "2 / 5" });
+  await expect(old).toContainText("已评分");
+});
+
+test("分组：时间已过或已评分的在“过往”，将来的待测试在“将来”", async ({ page }) => {
+  const { students } = await setup(page, 1);
+  const { db } = require("../server/db");
+  const mk = (unit, wall, iso, status, score) => db.prepare(`INSERT INTO assessments (student_id, subject, unit, unit_start_date, unit_start_at, scheduled_wall, scheduled_at, timezone, status, score, attempt_no, created_at, updated_at)
+    VALUES (?, 'AP Biology', ?, '2020-01-01', '2020-01-01T00:00:00-08:00', ?, ?, 'America/Vancouver', ?, ?, 1, ?, ?)`).run(students[0].id, unit, wall, iso, status, score, new Date().toISOString(), new Date().toISOString());
+  mk("OldGraded", "2020-02-01T10:00", "2020-02-01T10:00:00-08:00", "graded", 3);
+  mk("OldPending", "2020-03-01T10:00", "2020-03-01T10:00:00-08:00", "scheduled", null);
+  mk("FutureOne", "2031-05-01T10:00", "2031-05-01T10:00:00-07:00", "scheduled", null);
+  await page.reload();
+  await expect(page.locator("#lists .group-title").first()).toContainText("将来的测试（1）");
+  await expect(page.locator("#lists .group-title").nth(1)).toContainText("过往的测试（2）");
+  const sections = page.locator("#lists section");
+  await expect(sections.nth(0)).toContainText("FutureOne");
+  await expect(sections.nth(1)).toContainText("OldGraded");
+  await expect(sections.nth(1)).toContainText("OldPending");
+  await expect(sections.nth(0)).not.toContainText("OldPending");
+});
+
+test("触控目标 ≥ 44px；axe 无 serious/critical（页面与各对话框）；窄屏无横向滚动", async ({ page }) => {
+  await setup(page, 2);
+  const unit = "Unit " + uid("a");
+  await createVia(page, unit);
+  const small = await page.evaluate(() =>
+    Array.from(document.querySelectorAll("button, a[href], input, select"))
+      .filter((e) => e.offsetParent !== null)
+      .map((e) => { const b = e.getBoundingClientRect(); return { n: e.tagName + "#" + (e.id || e.textContent.trim().slice(0, 10)), w: Math.round(b.width), h: Math.round(b.height) }; })
+      .filter((x) => x.h < 44 || x.w < 44)
+  );
+  expect(small).toEqual([]);
+
+  const check = async (label) => {
+    const res = await new AxeBuilder({ page }).analyze();
+    const bad = res.violations.filter((v) => ["serious", "critical"].includes(v.impact));
+    expect(bad.map((v) => label + " " + v.id + ": " + v.nodes.map((n) => n.target.join(" ")).join(" | "))).toEqual([]);
+  };
+  await check("列表");
+  await page.click("#new-btn");
+  await check("新建对话框");
+  await page.keyboard.press("Escape");
+  await card(page, unit).getByRole("button", { name: /^修改：/ }).click();
+  await check("修改对话框");
+  await page.keyboard.press("Escape");
+  await card(page, unit).getByRole("button", { name: /^答题与分数：/ }).click();
+  await check("答题与分数对话框");
+  await page.keyboard.press("Escape");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const sw = await page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
+  expect(sw[0]).toBeLessThanOrEqual(sw[1]);
+});
+
+test("没有控制台错误；退出登录回到登录页", async ({ page }) => {
+  const { errors } = await setup(page, 1);
+  await createVia(page, "Unit " + uid("c"));
+  expect(errors).toEqual([]);
+  await page.click("#logout-btn");
+  await expect(page).toHaveURL(/\/login$/);
+});
+
+test("截图归档：督导者页面（供人工审阅外观）", async ({ page }, testInfo) => {
+  const fs = require("fs");
+  const path = require("path");
+  const dir = path.join(__dirname, "screenshots", "supervisor" + (testInfo.project.name === "chromium" ? "" : "-" + testInfo.project.name));
+  fs.mkdirSync(dir, { recursive: true });
+  const { students } = await setup(page, 2);
+  await createVia(page, "Unit 2", { all: true, subject: "AP Biology", files: ["Unit2-题目A.pdf", "Unit2-题目B.pdf"] });
+  const c = card(page, "Unit 2").first();
+  await c.getByRole("button", { name: /^答题与分数：/ }).click();
+  await page.locator("#a-files input[type=file]").setInputFiles(file("答题.pdf"));
+  await page.selectOption("#s-score", "4");
+  await page.click("#score-submit");
+  await expect(page.locator("#score-dialog")).toBeHidden();
+  await createVia(page, "Unit 3", { subject: "AP Biology", date: "2031-04-05", start: "2031-03-20" });
+  await page.screenshot({ path: path.join(dir, "supervisor-list.png"), fullPage: true });
+  await page.click("#new-btn");
+  await page.screenshot({ path: path.join(dir, "supervisor-create.png") });
+  expect(students.length).toBe(2);
+});
