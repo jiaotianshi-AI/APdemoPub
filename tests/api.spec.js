@@ -18,7 +18,7 @@ test("T20 APApi 函数齐全，预留函数 reject NOT_IMPLEMENTED，getCurrentU
   }, { RESERVED, IMPLEMENTED });
   expect(r.missing).toEqual([]);
   for (const n of RESERVED) expect(r.codes[n]).toBe("NOT_IMPLEMENTED");
-  expect(r.user).toEqual({ username: "e2e_student", type: "student" });
+  expect(r.user).toEqual({ username: "e2e_student", type: "student", timezone: "America/Vancouver", tzLabel: { zh: "温哥华，-7", en: "Vancouver, -7" } });
 });
 
 test("T20 remote 模式下调用不产生任何网络请求", async ({ page }) => {

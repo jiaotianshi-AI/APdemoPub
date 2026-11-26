@@ -100,7 +100,7 @@
     getQaDemo: function () { return listItems("qa.sample.json", "getQaDemo"); },
     getCurrentUser: function () {
       if (isRemote()) return Promise.resolve(null);
-      return overview().then(function (o) { return { username: o.username, type: "student" }; }, function () { return null; });
+      return overview().then(function (o) { return { username: o.username, type: "student", timezone: o.timezone, tzLabel: o.tzLabel }; }, function () { return null; });
     },
     logout: function () {
       if (isRemote()) return notImplemented("logout")();

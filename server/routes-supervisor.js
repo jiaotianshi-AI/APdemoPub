@@ -5,7 +5,8 @@ const { db, transaction, audit } = require('./db');
 const { httpError, readJson, sendJson } = require('./http');
 const files = require('./files');
 const attempts = require('./attempts');
-const { wallToIso, dateToIso } = require('./timeutil');
+const { wallToIso, dateToIso, isoToWall } = require('./timeutil');
+const tzs = require('./timezones');
 const scoring = require('./scoring');
 
 const TEXT_MAX = 64;
@@ -19,7 +20,7 @@ function isLinked(supervisorId, studentId) {
 }
 function requireLinkedStudent(ctx, studentId) {
   const id = Number(studentId);
-  const stu = Number.isInteger(id) ? db.prepare("SELECT id, username FROM accounts WHERE id = ? AND type = 'student'").get(id) : null;
+  const stu = Number.isInteger(id) ? db.prepare("SELECT id, username, timezone FROM accounts WHERE id = ? AND type = 'student'").get(id) : null;
   if (!stu || !isLinked(ctx.account.id, stu.id)) throw httpError(404, 'NOT_FOUND', '没有找到这个学生。');
   return stu;
 }
@@ -49,14 +50,14 @@ function cleanWeights(value, count) {
   for (const w of value) if (!scoring.isValidWeight(w)) throw httpError(422, 'INVALID_WEIGHT', `每题的权重必须是 ${scoring.MIN_WEIGHT}–${scoring.MAX_WEIGHT} 的整数。`);
   return value;
 }
-function cleanWall(value, { future }) {
-  const t = wallToIso(value, config.timezone);
+function cleanWall(value, tz, { future }) {
+  const t = wallToIso(value, tz);
   if (!t) throw httpError(422, 'INVALID_TIME', '请选择有效的测试日期和时间。');
   if (future && t.ms <= Date.now()) throw httpError(422, 'TIME_IN_PAST', '测试时间必须晚于现在。');
   return { wall: value, iso: t.iso, ms: t.ms };
 }
-function cleanStartDate(value, wall) {
-  const t = dateToIso(value, config.timezone);
+function cleanStartDate(value, wall, tz) {
+  const t = dateToIso(value, tz);
   if (!t) throw httpError(422, 'INVALID_START_DATE', '请选择有效的“本单元开始学习日期”。');
   if (String(value) > String(wall).slice(0, 10)) throw httpError(422, 'START_AFTER_TEST', '“本单元开始学习日期”不能晚于测试日期。');
   return { date: value, iso: t.iso };
@@ -83,9 +84,17 @@ function cleanFileIds(value, ctx, role, { min }) {
 }
 
 /* ---------- 输出 ---------- */
-function attemptInfo(assessmentId) {
+// 答卷信息：精确时刻 + 按这场测试的时区（学生所在时区）换算的“当地时间”
+function withWalls(att, tz) {
+  const info = Object.assign(attempts.publicAttempt(att), attempts.summary(att));
+  info.startedWall = isoToWall(att.started_at, tz);
+  info.deadlineWall = isoToWall(att.deadline_at, tz);
+  info.submittedWall = att.submitted_at ? isoToWall(att.submitted_at, tz) : null;
+  return info;
+}
+function attemptInfo(assessmentId, tz) {
   const att = attempts.getAttempt(assessmentId);
-  return att ? Object.assign(attempts.publicAttempt(att), attempts.summary(att)) : null;
+  return att ? withWalls(att, tz) : null;
 }
 function serialize(a) {
   const qs = attempts.questionRows(a.id, { text: true });
@@ -102,7 +111,7 @@ function serialize(a) {
     questionFiles: qs,
     // 旧版本一次性上传、没有对应到具体题目的答题文件
     answerFiles: attempts.answerFiles(a.id),
-    attempt: attemptInfo(a.id)
+    attempt: attemptInfo(a.id, a.timezone)
   };
 }
 function respond(res, status, ids) {
@@ -121,9 +130,9 @@ function setFiles(assessmentId, role, ids) {
 
 /* ---------- 接口 ---------- */
 function listStudents(res, ctx) {
-  const rows = db.prepare(`SELECT a.id, a.username, a.subject, a.disabled FROM supervisor_students s
+  const rows = db.prepare(`SELECT a.id, a.username, a.subject, a.disabled, a.timezone FROM supervisor_students s
     JOIN accounts a ON a.id = s.student_id WHERE s.supervisor_id = ? ORDER BY a.username`).all(ctx.account.id);
-  sendJson(res, 200, { students: rows.map((r) => ({ id: r.id, username: r.username, subject: r.subject || '', disabled: !!r.disabled })) });
+  sendJson(res, 200, { students: rows.map((r) => ({ id: r.id, username: r.username, subject: r.subject || '', disabled: !!r.disabled, timezone: r.timezone, tzLabel: tzs.label(r.timezone) })) });
 }
 
 function listAssessments(res, ctx, studentId) {
@@ -141,11 +150,15 @@ async function createAssessments(req, res, ctx) {
     if (!Number.isInteger(v)) throw httpError(422, 'INVALID_STUDENTS', '学生列表格式不正确。');
     if (!studentIds.includes(v)) studentIds.push(v);
   }
-  studentIds.forEach((id) => requireLinkedStudent(ctx, id));
+  const studs = studentIds.map((id) => requireLinkedStudent(ctx, id));
   const subject = cleanText(body.subject, '测试科目');
   const unit = cleanText(body.unit, '测试单元');
-  const when = cleanWall(body.scheduledWall, { future: true });
-  const start = cleanStartDate(body.unitStartDate, when.wall);
+  // 测试日期和时间按“每个学生自己所在的时区”解释（所选学生时区不同时，同一个当地时间会分别按各自时区生效）
+  const per = studs.map((stu) => {
+    const when = cleanWall(body.scheduledWall, stu.timezone, { future: true });
+    const start = cleanStartDate(body.unitStartDate, when.wall, stu.timezone);
+    return { stu, when, start };
+  });
   const questionIds = cleanFileIds(body.questionFileIds, ctx, 'question', { min: 1 });
   const duration = cleanDuration(body.durationMinutes);
   const weights = cleanWeights(body.questionWeights, questionIds.length);
@@ -155,15 +168,15 @@ async function createAssessments(req, res, ctx) {
     const ins = db.prepare(`INSERT INTO assessments (student_id, created_by, subject, unit, unit_start_date, unit_start_at, scheduled_wall, scheduled_at, timezone, duration_minutes, status, attempt_no, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', 1, ?, ?)`);
     const ids = [];
-    for (const sid of studentIds) {
-      const id = Number(ins.run(sid, ctx.account.id, subject, unit, start.date, start.iso, when.wall, when.iso, config.timezone, duration, now, now).lastInsertRowid);
+    for (const { stu, when, start } of per) {
+      const id = Number(ins.run(stu.id, ctx.account.id, subject, unit, start.date, start.iso, when.wall, when.iso, stu.timezone, duration, now, now).lastInsertRowid);
       setFiles(id, 'question', questionIds);
       questionIds.forEach((qid, i) => db.prepare('INSERT INTO question_weights (assessment_id, question_file_id, weight) VALUES (?, ?, ?)').run(id, qid, weights[i]));
       ids.push(id);
     }
     return ids;
   });
-  audit(ctx.account.username, 'create_assessments', `${created.length} 个学生`, `${subject} ${unit} ${when.wall}`);
+  audit(ctx.account.username, 'create_assessments', `${created.length} 个学生`, `${subject} ${unit} ${body.scheduledWall}`);
   respond(res, 201, created);
 }
 
@@ -228,16 +241,18 @@ async function updateAssessment(req, res, ctx, idText) {
   const bad = keys.filter((k) => !allowed.includes(k));
   if (bad.length) throw httpError(409, 'NOT_EDITABLE', fresh.status === 'scheduled' ? '不支持修改这个内容。' : '已提交或已评分的测试只能修改每题的回答文件、评分和权重，需要改时间请使用“重测”。');
 
+  const stuTz = db.prepare('SELECT timezone FROM accounts WHERE id = ?').get(a.student_id).timezone; // 学生当前所在时区
   let { subject, unit, unit_start_date: startDate, unit_start_at: startAt, scheduled_wall: wall, scheduled_at: at } = a;
+  let tzForRow = a.timezone;
   if ('subject' in body) subject = cleanText(body.subject, '测试科目');
   if ('unit' in body) unit = cleanText(body.unit, '测试单元');
   if ('scheduledWall' in body && body.scheduledWall !== a.scheduled_wall) {
-    const w = cleanWall(body.scheduledWall, { future: true });
-    wall = w.wall; at = w.iso;
+    const w = cleanWall(body.scheduledWall, stuTz, { future: true });
+    wall = w.wall; at = w.iso; tzForRow = stuTz;
   }
   if ('unitStartDate' in body || wall !== a.scheduled_wall) {
-    const s = cleanStartDate('unitStartDate' in body ? body.unitStartDate : startDate, wall);
-    startDate = s.date; startAt = s.iso;
+    const s = cleanStartDate('unitStartDate' in body ? body.unitStartDate : startDate, wall, stuTz);
+    startDate = s.date; startAt = s.iso; tzForRow = stuTz;
   }
   const duration = 'durationMinutes' in body ? cleanDuration(body.durationMinutes) : a.duration_minutes;
   const questionIds = 'questionFileIds' in body ? cleanFileIds(body.questionFileIds, ctx, 'question', { min: 1 }) : null;
@@ -248,8 +263,8 @@ async function updateAssessment(req, res, ctx, idText) {
 
   const now = new Date().toISOString();
   const removed = transaction(() => {
-    db.prepare('UPDATE assessments SET subject = ?, unit = ?, unit_start_date = ?, unit_start_at = ?, scheduled_wall = ?, scheduled_at = ?, duration_minutes = ?, updated_at = ? WHERE id = ?')
-      .run(subject, unit, startDate, startAt, wall, at, duration, now, a.id);
+    db.prepare('UPDATE assessments SET subject = ?, unit = ?, unit_start_date = ?, unit_start_at = ?, scheduled_wall = ?, scheduled_at = ?, timezone = ?, duration_minutes = ?, updated_at = ? WHERE id = ?')
+      .run(subject, unit, startDate, startAt, wall, at, tzForRow, duration, now, a.id);
     let gone = [];
     if (questionIds) {
       gone = gone.concat(setFiles(a.id, 'question', questionIds));
@@ -309,7 +324,7 @@ function viewAttempt(res, ctx, idText) {
   if (!att) return sendJson(res, 200, { attempt: null, questions: rows.map((q) => Object.assign(q, { answer: null })) });
   const answers = attempts.answersOf(att.id);
   const questions = rows.map((q) => Object.assign(q, { answer: Object.prototype.hasOwnProperty.call(answers, q.id) ? answers[q.id] : null }));
-  sendJson(res, 200, { attempt: Object.assign(attempts.publicAttempt(att), attempts.summary(att)), questions });
+  sendJson(res, 200, { attempt: withWalls(att, a.timezone), questions });
 }
 
 // AI 评分：接口已预留，尚未开发。以后按题目（questionFileId）或整次测试请求评分。
@@ -333,13 +348,14 @@ async function retake(req, res, ctx, idText) {
   const a = requireAssessment(ctx, idText);
   if (a.status !== 'graded') throw httpError(409, 'NOT_GRADED', '只有已评分的测试才能重测。');
   const body = await readJson(req);
-  const when = cleanWall(body.scheduledWall, { future: true });
-  const start = cleanStartDate(a.unit_start_date, when.wall);
+  const stuTz = db.prepare('SELECT timezone FROM accounts WHERE id = ?').get(a.student_id).timezone;
+  const when = cleanWall(body.scheduledWall, stuTz, { future: true });
+  const start = cleanStartDate(a.unit_start_date, when.wall, stuTz);
   const now = new Date().toISOString();
   const newId = transaction(() => {
     const id = Number(db.prepare(`INSERT INTO assessments (student_id, created_by, subject, unit, unit_start_date, unit_start_at, scheduled_wall, scheduled_at, timezone, duration_minutes, status, attempt_no, retake_of, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?, ?, ?, ?)`)
-      .run(a.student_id, ctx.account.id, a.subject, a.unit, start.date, start.iso, when.wall, when.iso, config.timezone, a.duration_minutes, a.attempt_no + 1, a.id, now, now).lastInsertRowid);
+      .run(a.student_id, ctx.account.id, a.subject, a.unit, start.date, start.iso, when.wall, when.iso, stuTz, a.duration_minutes, a.attempt_no + 1, a.id, now, now).lastInsertRowid);
     db.prepare(`INSERT INTO assessment_files (assessment_id, file_id, role, position)
       SELECT ?, file_id, role, position FROM assessment_files WHERE assessment_id = ? AND role = 'question'`).run(id, a.id);
     db.prepare(`INSERT INTO question_weights (assessment_id, question_file_id, weight)

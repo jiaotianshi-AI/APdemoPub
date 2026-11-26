@@ -6,6 +6,7 @@ const { db, transaction } = require('./db');
 const { httpError, readJson, sendJson } = require('./http');
 const attempts = require('./attempts');
 const files = require('./files');
+const tzs = require('./timezones');
 
 const ANSWER_MAX = 20000;
 const EVENT_MAX = 500;
@@ -37,6 +38,8 @@ function overview(res, ctx) {
   sendJson(res, 200, {
     username: stu.username,
     subject: stu.subject || null,
+    timezone: stu.timezone,
+    tzLabel: tzs.label(stu.timezone),
     serverNow: nowIso,
     next: a ? Object.assign(baseOf(a), { deadlineAt: attempt ? attempt.deadline_at : null }) : null
   });

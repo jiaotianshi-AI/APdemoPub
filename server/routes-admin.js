@@ -4,9 +4,11 @@ const { db, transaction, audit } = require('./db');
 const auth = require('./auth');
 const { httpError, readJson, sendJson } = require('./http');
 const files = require('./files');
+const tzs = require('./timezones');
+const { wallToIso, dateToIso } = require('./timeutil');
 
 const MANAGED_TYPES = ['student', 'supervisor', 'support'];
-const EDITABLE = { student: ['subject'], supervisor: ['studentIds'], support: ['supervisorIds'] };
+const EDITABLE = { student: ['subject', 'timezone'], supervisor: ['studentIds', 'timezone'], support: ['supervisorIds', 'timezone'] };
 const LINK_TARGET_TYPE = { studentIds: 'student', supervisorIds: 'supervisor' };
 const SUBJECT_MAX = 64;
 
@@ -17,6 +19,8 @@ function serialize(a, links) {
     type: a.type,
     disabled: !!a.disabled,
     mustChangePassword: !!a.must_change_password,
+    timezone: a.timezone,
+    tzLabel: tzs.label(a.timezone),
     createdAt: a.created_at,
     lastLoginAt: a.last_login_at || null
   };
@@ -82,7 +86,7 @@ async function listAccounts(req, res, url) {
     ? db.prepare('SELECT * FROM accounts WHERE type = ? ORDER BY id').all(type)
     : db.prepare("SELECT * FROM accounts WHERE type != 'admin' ORDER BY id").all();
   const links = loadLinks();
-  sendJson(res, 200, { accounts: rows.map((r) => serialize(r, links)) });
+  sendJson(res, 200, { accounts: rows.map((r) => serialize(r, links)), timezones: tzs.publicList(), defaultTimezone: tzs.DEFAULT_TZ });
 }
 
 async function createAccount(req, res, ctx) {
@@ -90,6 +94,8 @@ async function createAccount(req, res, ctx) {
   const username = auth.normalizeUsername(body.username);
   if (!username) throw httpError(422, 'INVALID_USERNAME', '账号名为 2–32 个字符，只能包含字母、数字、下划线、点和短横线。');
   if (!MANAGED_TYPES.includes(body.type)) throw httpError(422, 'INVALID_TYPE', '请选择账号类型：学生、督导者或客服。');
+  const timezone = body.timezone === undefined ? tzs.DEFAULT_TZ : body.timezone;
+  if (!tzs.isValid(timezone)) throw httpError(422, 'INVALID_TIMEZONE', '请选择有效的时区。');
   const key = auth.usernameKey(username);
   if (db.prepare('SELECT 1 FROM accounts WHERE username_key = ?').get(key)) throw httpError(409, 'USERNAME_TAKEN', '这个账号名已经被使用。');
 
@@ -97,12 +103,12 @@ async function createAccount(req, res, ctx) {
   const hash = await auth.hashPassword(initialPassword);
   let id;
   try {
-    id = db.prepare('INSERT INTO accounts (username, username_key, type, password_hash, must_change_password, created_at) VALUES (?, ?, ?, ?, 1, ?)')
-      .run(username, key, body.type, hash, new Date().toISOString()).lastInsertRowid;
+    id = db.prepare('INSERT INTO accounts (username, username_key, type, password_hash, must_change_password, timezone, created_at) VALUES (?, ?, ?, ?, 1, ?, ?)')
+      .run(username, key, body.type, hash, timezone, new Date().toISOString()).lastInsertRowid;
   } catch (e) {
     throw httpError(409, 'USERNAME_TAKEN', '这个账号名已经被使用。');
   }
-  audit(ctx.account.username, 'create_account', username, body.type);
+  audit(ctx.account.username, 'create_account', username, body.type + ' ' + timezone);
   respondAccount(res, 201, Number(id), { initialPassword });
 }
 
@@ -116,20 +122,43 @@ async function updateAccount(req, res, ctx, idText) {
   const unknown = keys.filter((k) => !allowed.includes(k));
   if (unknown.length) throw httpError(400, 'FIELD_NOT_EDITABLE', '这类账号不支持修改这个内容。');
 
-  if (target.type === 'student') {
-    const subject = cleanSubject(body.subject);
-    db.prepare('UPDATE accounts SET subject = ? WHERE id = ?').run(subject, target.id);
-    audit(ctx.account.username, 'update_subject', target.username, subject || '(空)');
-  } else if (target.type === 'supervisor') {
-    const ids = cleanIds(body.studentIds, 'student');
+  // 先全部校验，再写入（避免只改了一半）
+  if ('timezone' in body && !tzs.isValid(body.timezone)) throw httpError(422, 'INVALID_TIMEZONE', '请选择有效的时区。');
+  const subjectValue = target.type === 'student' && 'subject' in body ? cleanSubject(body.subject) : undefined;
+  const studentIds = target.type === 'supervisor' && 'studentIds' in body ? cleanIds(body.studentIds, 'student') : null;
+  const supervisorIds = target.type === 'support' && 'supervisorIds' in body ? cleanIds(body.supervisorIds, 'supervisor') : null;
+
+  if ('timezone' in body) {
+    if (!tzs.isValid(body.timezone)) throw httpError(422, 'INVALID_TIMEZONE', '请选择有效的时区。');
+    if (body.timezone !== target.timezone) {
+      transaction(() => {
+        db.prepare('UPDATE accounts SET timezone = ? WHERE id = ?').run(body.timezone, target.id);
+        // 学生换时区：还没开始的测试保持“当地时间”不变（例如当地下午 3 点），对应的精确时刻随之改变；已开始或已完成的测试保持原样
+        if (target.type === 'student') {
+          const rows = db.prepare("SELECT id, scheduled_wall, unit_start_date FROM assessments WHERE student_id = ? AND status = 'scheduled'").all(target.id);
+          for (const r of rows) {
+            const at = wallToIso(r.scheduled_wall, body.timezone), st = dateToIso(r.unit_start_date, body.timezone);
+            if (at && st) db.prepare('UPDATE assessments SET timezone = ?, scheduled_at = ?, unit_start_at = ?, updated_at = ? WHERE id = ?').run(body.timezone, at.iso, st.iso, new Date().toISOString(), r.id);
+          }
+        }
+      });
+      audit(ctx.account.username, 'update_timezone', target.username, target.timezone + ' → ' + body.timezone);
+    }
+    if (Object.keys(body).length === 1) return respondAccount(res, 200, target.id);
+  }
+  if (subjectValue !== undefined) {
+    db.prepare('UPDATE accounts SET subject = ? WHERE id = ?').run(subjectValue, target.id);
+    audit(ctx.account.username, 'update_subject', target.username, subjectValue || '(空)');
+  } else if (studentIds) {
+    const ids = studentIds;
     transaction(() => {
       db.prepare('DELETE FROM supervisor_students WHERE supervisor_id = ?').run(target.id);
       const ins = db.prepare('INSERT INTO supervisor_students (supervisor_id, student_id) VALUES (?, ?)');
       for (const sid of ids) ins.run(target.id, sid);
     });
     audit(ctx.account.username, 'update_students', target.username, `${ids.length} 个学生`);
-  } else {
-    const ids = cleanIds(body.supervisorIds, 'supervisor');
+  } else if (supervisorIds) {
+    const ids = supervisorIds;
     transaction(() => {
       db.prepare('DELETE FROM support_supervisors WHERE support_id = ?').run(target.id);
       const ins = db.prepare('INSERT INTO support_supervisors (support_id, supervisor_id) VALUES (?, ?)');

@@ -3,6 +3,7 @@ const config = require('./config');
 const { db, audit } = require('./db');
 const auth = require('./auth');
 const { httpError, readJson, sendJson } = require('./http');
+const tzs = require('./timezones');
 
 const HOME = { student: '/', supervisor: '/supervisor', support: '/pending', admin: '/admin' };
 function homeFor(account) { return account.must_change_password ? '/change-password' : HOME[account.type]; }
@@ -14,7 +15,10 @@ function clientIp(req) {
 }
 
 function me(account) {
-  return { id: account.id, username: account.username, type: account.type, mustChangePassword: !!account.must_change_password };
+  return {
+    id: account.id, username: account.username, type: account.type, mustChangePassword: !!account.must_change_password,
+    timezone: account.timezone, tzLabel: tzs.label(account.timezone)
+  };
 }
 
 async function login(req, res) {

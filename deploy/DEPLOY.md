@@ -32,7 +32,7 @@ cd ~/APdemoPub && git pull && sudo bash deploy/update.sh
 
 ## 第一次部署新版本（增加了测试管理和 PDF 上传）后请检查
 1. 更新后运行：`cd ~/APdemoPub && git pull && sudo bash deploy/update.sh`（会同步新的服务配置并重启）。
-2. **检查服务器的时区数据**，确认温哥华的偏移是你期望的（页面倒计时用这个偏移）：
+2. **检查服务器的时区数据**，确认偏移是你期望的（账号右上角的“-7”和测试的精确时刻都用服务器的时区数据；这里以温哥华为例，其他时区同理）：
    ```bash
    node -e 'const f=(d)=>new Intl.DateTimeFormat("en-US",{timeZone:"America/Vancouver",timeStyle:"long"}).format(new Date(d));console.log(f("2026-11-28T23:00:00Z"))'
    ```

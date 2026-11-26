@@ -3,7 +3,7 @@
   "use strict";
 
   var TYPE_LABEL = { student: "学生", supervisor: "督导者", support: "客服" };
-  var state = { accounts: [], filter: "", search: "" };
+  var state = { accounts: [], filter: "", search: "", timezones: [], defaultTz: "America/Vancouver" };
 
   var $ = function (id) { return document.getElementById(id); };
   function el(tag, cls, text) {
@@ -71,7 +71,7 @@
     if (!list.length) {
       var tr = el("tr");
       var td = el("td", "empty", state.accounts.length ? "没有符合条件的账号。" : "还没有账号，点击“新建账号”开始。");
-      td.colSpan = 5;
+      td.colSpan = 6;
       tr.appendChild(td);
       rows.appendChild(tr);
       return;
@@ -80,6 +80,7 @@
       var tr = el("tr", a.disabled ? "is-disabled" : "");
       tr.appendChild(el("td", "name", a.username));
       tr.appendChild(el("td", "type", TYPE_LABEL[a.type]));
+      tr.appendChild(el("td", "tz", a.tzLabel ? a.tzLabel.zh : a.timezone));
       var st = el("td");
       st.appendChild(el("span", "badge" + (a.disabled ? " off" : ""), a.disabled ? "已停用" : "正常"));
       if (a.mustChangePassword) st.appendChild(el("span", "badge warn", "未改初始密码"));
@@ -98,6 +99,8 @@
   function load() {
     return api("GET", "/api/admin/accounts").then(function (data) {
       state.accounts = data.accounts;
+      state.timezones = data.timezones || [];
+      state.defaultTz = data.defaultTimezone || state.defaultTz;
       setStatus("共 " + data.accounts.length + " 个账号。");
       render();
     }).catch(function (e) { setStatus(e.message, true); });
@@ -145,10 +148,22 @@
   // 关闭密码窗口后清掉页面里的密码
   $("secret-dialog").addEventListener("close", function () { $("secret-password").textContent = ""; });
 
+  function fillTzSelect(sel, value) {
+    clear(sel);
+    state.timezones.forEach(function (z) {
+      var o = el("option", "", z.label.zh + "　" + z.id);
+      o.value = z.id;
+      sel.appendChild(o);
+    });
+    sel.value = value;
+    if (sel.value !== value && state.timezones.length) sel.value = state.timezones[0].id;
+  }
+
   /* ---------- 新建 ---------- */
   $("new-btn").addEventListener("click", function () {
     remember();
     $("create-form").reset();
+    fillTzSelect($("new-tz"), state.defaultTz);
     showMsg("create-error", "");
     openDialog($("create-dialog"));
     $("new-username").focus();
@@ -161,7 +176,7 @@
     if (!username) return showMsg("create-error", "请输入账号名。");
     if (!type) return showMsg("create-error", "请选择账号类型。");
     $("create-submit").disabled = true;
-    api("POST", "/api/admin/accounts", { username: username, type: type }).then(function (data) {
+    api("POST", "/api/admin/accounts", { username: username, type: type, timezone: $("new-tz").value }).then(function (data) {
       closeDialog($("create-dialog"));
       lastTrigger = $("new-btn");
       showSecret(data.account.username, data.initialPassword);
@@ -209,6 +224,8 @@
     showMsg("edit-error", "");
     $("edit-username").textContent = a.username;
     $("edit-type").textContent = TYPE_LABEL[a.type];
+    fillTzSelect($("edit-tz"), a.timezone);
+    $("edit-tz-hint").textContent = a.type === "student" ? "修改学生的时区后，他还没开始的测试会保持“当地时间”不变（例如当地下午 3 点），对应的精确时刻随之改变；已开始或已完成的测试不变。" : "";
     var host = $("edit-fields");
     clear(host);
     if (a.type === "student") {
@@ -248,6 +265,7 @@
       var ids = Array.prototype.map.call($("edit-fields").querySelectorAll('input[type="checkbox"]:checked'), function (c) { return Number(c.value); });
       body = editing.type === "supervisor" ? { studentIds: ids } : { supervisorIds: ids };
     }
+    body.timezone = $("edit-tz").value;
     $("edit-submit").disabled = true;
     api("PATCH", "/api/admin/accounts/" + editing.id, body).then(function () {
       closeDialog($("edit-dialog"));
@@ -296,6 +314,6 @@
   });
   $("search").addEventListener("input", function () { state.search = $("search").value; render(); });
 
-  api("GET", "/api/me").then(function (me) { $("whoami").textContent = "当前管理员：" + me.username; }).catch(function () { /* 忽略 */ });
+  api("GET", "/api/me").then(function (me) { $("whoami").textContent = "当前管理员：" + me.username + "（" + me.tzLabel.zh + "）"; }).catch(function () { /* 忽略 */ });
   load();
 })();

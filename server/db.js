@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS accounts (
   must_change_password INTEGER NOT NULL DEFAULT 1,
   disabled INTEGER NOT NULL DEFAULT 0,
   subject TEXT,
+  timezone TEXT NOT NULL DEFAULT 'America/Vancouver',
   created_at TEXT NOT NULL,
   last_login_at TEXT
 );
@@ -160,7 +161,12 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 `);
 
-if (startVersion < 3) db.exec('PRAGMA user_version = 3'); // 2 = 加入每题回答 PDF 与评分；3 = 加入每题权重（都只是新增表，不改旧数据）
+// 4 = 账号增加时区字段（旧账号默认温哥华）
+if (!db.prepare('PRAGMA table_info(accounts)').all().some((c) => c.name === 'timezone')) {
+  db.exec("ALTER TABLE accounts ADD COLUMN timezone TEXT NOT NULL DEFAULT 'America/Vancouver'");
+}
+if (startVersion < 4) db.exec('PRAGMA user_version = 4');
+ // 2 = 加入每题回答 PDF 与评分；3 = 加入每题权重（都只是新增表，不改旧数据）
 
 // 事务辅助：fn 抛异常则回滚
 function transaction(fn) {

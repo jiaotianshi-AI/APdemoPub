@@ -55,7 +55,8 @@
           <input id="t-time" type="time" required>
         </div>
       </div>
-      <p class="hint">日期和时间按<strong>温哥华时间</strong>。</p>
+      <p id="tz-hint" class="hint"></p>
+      <p id="tz-warn" class="notice" role="status" hidden></p>
       <div class="field">
         <label for="t-start">本单元开始学习日期</label>
         <input id="t-start" type="date" required>
@@ -135,7 +136,8 @@
           <input id="r-time" type="time" required>
         </div>
       </div>
-      <p class="hint">按温哥华时间。</p>
+      <p id="r-tz-hint" class="hint"></p>
+      <p id="r-tz-warn" class="notice" role="status" hidden></p>
       <p id="retake-error" class="msg error" role="alert" hidden></p>
       <div class="dialog-actions">
         <button type="button" class="btn" data-close>取消</button>

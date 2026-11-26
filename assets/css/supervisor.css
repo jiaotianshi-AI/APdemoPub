@@ -103,3 +103,5 @@ legend { padding: 0; font-weight: 600; }
 .weight-input { width: 5em; min-height: 44px; padding: 0 8px; border: 1px solid #94a3b8; border-radius: 10px; background: #ffffff; font: inherit; }
 .file-item { flex-wrap: wrap; padding-top: 4px; padding-bottom: 4px; }
 @media (max-width: 800px) { .q-row { grid-template-columns: 3.5em 1fr 3em; } }
+
+.notice { margin-top: 8px; padding: 10px 14px; border-radius: 10px; background: #fef3c7; color: #92400e; font-weight: 600; }

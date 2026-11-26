@@ -7,7 +7,7 @@
   var FORMULA_TEXT = "汇总评分 = 各题评分的加权平均值，四舍五入到整数（x.5 进位）：加权平均 = Σ（权重 × 评分）÷ Σ权重。权重是 1–100 的整数（默认 1，所有题权重相同时就是普通平均），权重越大，这道题对汇总评分影响越大。每题评分为 1–5 的整数。每道题都有评分后自动算出汇总，状态变为“已评分”；任何一题评分为空，则不计算汇总。";
   var MAX_FILES = 10;
   var MAX_BYTES = 20 * 1024 * 1024;
-  var state = { students: [], currentId: null, assessments: [] };
+  var state = { students: [], currentId: null, assessments: [], me: null };
 
   var $ = function (id) { return document.getElementById(id); };
   function el(tag, cls, text) {
@@ -52,9 +52,35 @@
   function fmtWall(wall) { // 'YYYY-MM-DDTHH:MM'
     var h = Number(wall.slice(11, 13));
     var h12 = h % 12 === 0 ? 12 : h % 12;
-    return fmtDate(wall.slice(0, 10)) + " " + h12 + ":" + wall.slice(14, 16) + " " + (h < 12 ? "AM" : "PM") + "（温哥华时间）";
+    return fmtDate(wall.slice(0, 10)) + " " + h12 + ":" + wall.slice(14, 16) + " " + (h < 12 ? "AM" : "PM");
   }
   function fmtSize(n) { return n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB"; }
+
+  /* ---------- 时区提醒 ----------
+     测试时间一律按“学生所在时区”设定。家长/老师自己的时区与学生不同时，提醒按学生的时区填写。 */
+  function tzNotice(students, hintEl, warnEl) {
+    var mine = state.me ? state.me.tzLabel.zh : "";
+    var myTz = state.me ? state.me.timezone : "";
+    warnEl.hidden = true;
+    warnEl.textContent = "";
+    if (!students.length) { hintEl.textContent = "请先选择学生。日期和时间按学生所在时区设定。"; return; }
+    var groups = {};
+    students.forEach(function (s) { (groups[s.timezone] = groups[s.timezone] || { label: s.tzLabel.zh, n: 0 }).n += 1; });
+    var tzs = Object.keys(groups);
+    if (tzs.length === 1) {
+      var g = groups[tzs[0]];
+      hintEl.textContent = "日期和时间按学生所在时区设定：" + g.label + "。";
+      if (tzs[0] !== myTz) {
+        warnEl.textContent = "提醒：你的时区是 " + mine + "，学生的时区是 " + g.label + "。请按学生所在时区（" + g.label + "）填写测试日期和时间，不要按你自己的时区。";
+        warnEl.hidden = false;
+      }
+    } else {
+      hintEl.textContent = "日期和时间按每个学生自己所在的时区设定。";
+      warnEl.textContent = "提醒：所选学生的时区不同（" + tzs.map(function (k) { return groups[k].label + "：" + groups[k].n + " 人"; }).join("；") + "），同一个日期和时间会分别按各自的时区生效。你的时区是 " + mine + "。";
+      warnEl.hidden = false;
+    }
+  }
+  function studentById(id) { for (var i = 0; i < state.students.length; i++) if (state.students[i].id === id) return state.students[i]; return null; }
 
   /* ---------- 对话框通用 ---------- */
   function openDialog(d) { if (typeof d.showModal === "function") d.showModal(); else d.setAttribute("open", ""); }
@@ -173,6 +199,7 @@
       b.setAttribute("aria-current", s.id === state.currentId ? "true" : "false");
       b.appendChild(el("span", "name", s.username));
       b.appendChild(el("span", "sub", s.subject ? s.subject : "未设置学习科目"));
+      b.appendChild(el("span", "sub", "时区：" + s.tzLabel.zh));
       b.addEventListener("click", function () { selectStudent(s.id); });
       li.appendChild(b);
       ul.appendChild(li);
@@ -189,7 +216,7 @@
     renderStudents();
     var s = currentStudent();
     $("student-title").textContent = s ? s.username : "测试管理";
-    $("student-sub").textContent = s ? (s.subject ? "学习科目：" + s.subject : "管理员还没有为这位学生设置学习科目") : "";
+    $("student-sub").textContent = s ? (s.subject ? "学习科目：" + s.subject : "管理员还没有为这位学生设置学习科目") + "　·　学生所在时区：" + s.tzLabel.zh : "";
     return loadAssessments();
   }
 
@@ -340,18 +367,13 @@
   }
 
   /* ---------- 查看学生答题 ---------- */
-  function fmtInstant(iso) {
-    try {
-      return new Date(iso).toLocaleString("zh-CN", { timeZone: "America/Vancouver", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit", hour12: false }) + "（温哥华时间）";
-    } catch (e) { return iso; }
-  }
   function attemptLine(at) {
     var parts = ["作答方式：" + (at.method === "typed" ? "屏幕输入" : "纸质作答")];
-    parts.push("开始于 " + fmtInstant(at.startedAt) + (at.early ? "（提前开始）" : ""));
+    parts.push("开始于 " + fmtWall(at.startedWall) + (at.early ? "（提前开始）" : ""));
     if (at.submittedAt) {
       var mins = Math.max(1, Math.round((Date.parse(at.submittedAt) - Date.parse(at.startedAt)) / 60000));
-      parts.push((at.autoSubmitted ? "时间到自动提交" : "提交于 " + fmtInstant(at.submittedAt)) + "，用时约 " + mins + " 分钟");
-    } else parts.push("正在作答，截止 " + fmtInstant(at.deadlineAt));
+      parts.push((at.autoSubmitted ? "时间到自动提交" : "提交于 " + fmtWall(at.submittedWall)) + "，用时约 " + mins + " 分钟");
+    } else parts.push("正在作答，截止 " + fmtWall(at.deadlineWall));
     var away = "离开页面 " + at.leaveCount + " 次";
     if (at.awaySeconds) away += "，共约 " + (at.awaySeconds >= 60 ? Math.round(at.awaySeconds / 60) + " 分钟" : at.awaySeconds + " 秒");
     if (at.pdfLeaves) away += "（另有 " + at.pdfLeaves + " 次是为了打开题目 PDF）";
@@ -439,11 +461,21 @@
       c.addEventListener("change", sync);
       return c;
     });
-    function sync() { all.checked = testForm.checks.length > 0 && testForm.checks.every(function (c) { return c.checked; }); }
-    all.addEventListener("change", function () { testForm.checks.forEach(function (c) { c.checked = all.checked; }); });
+    function sync() {
+      all.checked = testForm.checks.length > 0 && testForm.checks.every(function (c) { return c.checked; });
+      refreshTzNotice();
+    }
+    all.addEventListener("change", function () { testForm.checks.forEach(function (c) { c.checked = all.checked; }); refreshTzNotice(); });
     sync();
     fs.appendChild(list);
     box.appendChild(fs);
+  }
+
+  function refreshTzNotice() {
+    var chosen = testForm.mode === "create"
+      ? testForm.checks.filter(function (c) { return c.checked; }).map(function (c) { return studentById(Number(c.value)); }).filter(Boolean)
+      : [currentStudent()].filter(Boolean);
+    tzNotice(chosen, $("tz-hint"), $("tz-warn"));
   }
 
   function openTestDialog(mode, a) {
@@ -471,6 +503,7 @@
       $("t-unit").value = a.unit;
       testForm.files = fileList($("q-files"), a.questionFiles, "题目 PDF");
     }
+    refreshTzNotice();
     openDialog($("test-dialog"));
     var first = box.querySelector("input") || $("t-date");
     first.focus();
@@ -667,6 +700,7 @@
     retakeFor = a;
     showMsg("retake-error", "");
     $("retake-form").reset();
+    tzNotice([currentStudent()].filter(Boolean), $("r-tz-hint"), $("r-tz-warn"));
     $("retake-summary").textContent = "原测试：" + a.subject + " · " + a.unit + "，" + fmtWall(a.scheduledWall) + "，汇总评分 " + a.score + " / 5";
     openDialog($("retake-dialog"));
     $("r-date").focus();
@@ -693,7 +727,11 @@
   }
 
   /* ---------- 启动 ---------- */
-  api("GET", "/api/me").then(function (me) { $("whoami").textContent = "当前账号：" + me.username; }).catch(function () { /* 忽略 */ });
+  api("GET", "/api/me").then(function (me) {
+    state.me = me;
+    $("whoami").textContent = "当前账号：" + me.username + "（" + me.tzLabel.zh + "）";
+    refreshTzNotice();
+  }).catch(function () { /* 忽略 */ });
   api("GET", "/api/supervisor/students").then(function (data) {
     state.students = data.students;
     renderStudents();

@@ -45,7 +45,7 @@
       <table id="accounts">
         <caption class="sr-only">账号列表</caption>
         <thead>
-          <tr><th scope="col">账号名</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">关联信息</th><th scope="col">操作</th></tr>
+          <tr><th scope="col">账号名</th><th scope="col">类型</th><th scope="col">时区</th><th scope="col">状态</th><th scope="col">关联信息</th><th scope="col">操作</th></tr>
         </thead>
         <tbody id="rows"></tbody>
       </table>
@@ -71,6 +71,11 @@
         </select>
         <span class="hint">账号名和类型创建后不能修改。</span>
       </div>
+      <div class="field">
+        <label for="new-tz">所在时区</label>
+        <select id="new-tz"></select>
+        <span class="hint">默认温哥华。学生的测试时间会按学生所在时区设定；账号登录后，右上角会显示账号名和时区。时区以后可以修改。</span>
+      </div>
       <p id="create-error" class="msg error" role="alert" hidden></p>
       <div class="dialog-actions">
         <button type="button" class="btn" data-close>取消</button>
@@ -88,6 +93,11 @@
         <div><dt>账号类型</dt><dd id="edit-type"></dd></div>
       </dl>
       <p class="hint">账号名和类型不能修改。</p>
+      <div class="field">
+        <label for="edit-tz">所在时区</label>
+        <select id="edit-tz"></select>
+        <span class="hint" id="edit-tz-hint"></span>
+      </div>
       <div id="edit-fields"></div>
       <p id="edit-error" class="msg error" role="alert" hidden></p>
       <div class="dialog-actions">

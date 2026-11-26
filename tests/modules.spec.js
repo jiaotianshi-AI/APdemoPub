@@ -139,10 +139,10 @@ test("T8 进度的边界：开始前为 0%，测试时间之后为 100%", async 
 test("T9 测试时间与倒计时/到点后显示“可以开始测试”", async ({ page }) => {
   await page.clock.install({ time: new Date("2030-06-14T07:30:00-07:00") });
   await ready(page, "zh");
-  await expect(page.locator("#progress-body")).toContainText("2030年6月15日 3:00 PM（温哥华时间）");
+  await expect(page.locator("#progress-body")).toContainText("2030年6月15日 3:00 PM");
   await expect(page.locator(".status-badge")).toHaveText("还有 1 天 7 小时");
   await page.click('.lang-btn[data-lang="en"]');
-  await expect(page.locator("#progress-body")).toContainText("Jun 15, 2030, 3:00 PM (Vancouver time)");
+  await expect(page.locator("#progress-body")).toContainText("Jun 15, 2030, 3:00 PM");
   await expect(page.locator(".status-badge")).toHaveText("1 d 7 h left");
 
   const page2 = await page.context().newPage();
@@ -177,7 +177,9 @@ test("T11 用户区：右上角显示当前账号和“退出登录”，点击�
   const login = await page.request.post("/api/login", { headers: { "X-Requested-With": "apdemo" }, data: { username: "e2e_student", password: "E2e-Passw0rd!" } });
   expect(login.status()).toBe(200);
   await ready(page);
-  await expect(page.locator("#user-name")).toHaveText("e2e_student");
+  await expect(page.locator("#user-name")).toHaveText("e2e_student（温哥华，-7）"); // 账号名和所在时区一起显示
+  await page.click('.lang-btn[data-lang="en"]');
+  await expect(page.locator("#user-name")).toHaveText("e2e_student (Vancouver, -7)");
   const btn = page.locator("#logout-btn");
   const box = await btn.boundingBox();
   const vw = page.viewportSize().width;
@@ -213,7 +215,7 @@ test("T18 数据驱动：页面内容来自后台接口，不是写死的", asyn
   expect(Math.abs(fw / bw - 0.4)).toBeLessThanOrEqual(0.01);
   await expect(page.locator("#sites-body a")).toHaveCount(2);
   await expect(page.locator("#progress-body")).toContainText("AP Chemistry · Unit 7");
-  await expect(page.locator("#progress-body")).toContainText("Jan 11, 2030, 2:30 PM (Vancouver time)");
+  await expect(page.locator("#progress-body")).toContainText("Jan 11, 2030, 2:30 PM");
 });
 
 test("没有安排测试时：显示科目和“暂无已安排的测试”，没有进度条", async ({ page }) => {

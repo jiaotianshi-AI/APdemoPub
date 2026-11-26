@@ -81,7 +81,7 @@ test("新建测试：选“所有学生”，每个学生各得一条；字段�
   await expect(c).toHaveCount(1);
   await expect(c).toContainText("AP Biology · " + unit);
   await expect(c).toContainText("待测试");
-  await expect(c).toContainText("2031年3月15日 3:00 PM（温哥华时间）");
+  await expect(c).toContainText("2031年3月15日 3:00 PM");
   await expect(c).toContainText("2031年3月1日");
   await expect(c).toContainText("题目1.pdf");
   await expect(c).toContainText("题目2.pdf");
@@ -154,7 +154,7 @@ test("修改待测试：改时间、单元，增删题目文件；删除要确�
   await page.click("#test-submit");
   await expect(page.locator("#test-dialog")).toBeHidden();
   const c2 = card(page, unit + "b");
-  await expect(c2).toContainText("2031年3月22日 10:30 AM（温哥华时间）");
+  await expect(c2).toContainText("2031年3月22日 10:30 AM");
   await expect(c2).toContainText("b.pdf");
   await expect(c2).not.toContainText("a.pdf");
 

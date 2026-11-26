@@ -43,4 +43,16 @@ function dateToIso(date, tz) { // 'YYYY-MM-DD' → 当天 00:00
   return wallToIso(date + 'T00:00', tz);
 }
 
-module.exports = { wallToIso, dateToIso, validDate };
+// 某个时刻在指定时区的“当地时间”，写成 'YYYY-MM-DDTHH:MM'
+function isoToWall(isoOrMs, tz) {
+  const ms = typeof isoOrMs === 'number' ? isoOrMs : Date.parse(isoOrMs);
+  if (!Number.isFinite(ms)) return null;
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
+  }).formatToParts(new Date(ms));
+  const p = {};
+  parts.forEach((x) => { p[x.type] = x.value; });
+  return `${p.year}-${p.month}-${p.day}T${String(Number(p.hour) % 24).padStart(2, '0')}:${p.minute}`;
+}
+
+module.exports = { wallToIso, dateToIso, validDate, offsetMinutes, isoToWall };

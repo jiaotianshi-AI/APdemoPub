@@ -67,7 +67,7 @@
   function fmtWall(wall) {
     var h = Number(wall.slice(11, 13)), h12 = h % 12 === 0 ? 12 : h % 12;
     var clock = h12 + ":" + wall.slice(14, 16) + " " + (h < 12 ? "AM" : "PM");
-    return i18n.getLang() === "zh" ? fmtDate(wall.slice(0, 10)) + " " + clock + "（温哥华时间）" : fmtDate(wall.slice(0, 10)) + ", " + clock + " (Vancouver time)";
+    return i18n.getLang() === "zh" ? fmtDate(wall.slice(0, 10)) + " " + clock : fmtDate(wall.slice(0, 10)) + ", " + clock;
   }
   function leftText(ms) {
     var mins = Math.max(1, Math.floor(ms / 60000)), d = Math.floor(mins / 1440), h = Math.floor((mins % 1440) / 60), m = mins % 60;
@@ -482,14 +482,22 @@
   function markLang() {
     document.querySelectorAll(".lang-btn").forEach(function (b) { b.setAttribute("aria-pressed", b.getAttribute("data-lang") === i18n.getLang() ? "true" : "false"); });
   }
+  var me = null;
+  function renderUser() {
+    var n = document.getElementById("user-name");
+    if (!n || !me) return;
+    var label = me.tzLabel ? i18n.pick(me.tzLabel) : "";
+    n.textContent = label ? (i18n.getLang() === "zh" ? me.username + "（" + label + "）" : me.username + " (" + label + ")") : me.username;
+  }
   function init() {
     i18n.init();
     renderBrand();
+    api("GET", "/api/me").then(function (m) { me = m; renderUser(); }).catch(function () { /* 忽略 */ });
     markLang();
     document.querySelectorAll(".lang-btn").forEach(function (b) {
       b.addEventListener("click", function () { i18n.setLang(b.getAttribute("data-lang"), true); });
     });
-    document.addEventListener("ap:langchange", function () { renderBrand(); markLang(); if (detail) render(); });
+    document.addEventListener("ap:langchange", function () { renderBrand(); renderUser(); markLang(); if (detail) render(); });
     if (!Number.isInteger(id) || id <= 0) { clear(root); root.appendChild(el("p", "error-box", t("exam.err.NOT_FOUND"))); root.appendChild(homeLink()); return; }
     load();
   }

@@ -44,7 +44,7 @@ test("所有测试：列表按状态分组；未完成的看不到题目；学�
   await expect(groups).toHaveText(["待测试（1）", "进行中与待评分（1）", "已评分的测试（1）"]);
   const todo = page.locator(".t-card", { hasText: "Unit 2" });
   await expect(todo).toContainText("待测试");
-  await expect(todo).toContainText("2031年3月15日 3:00 PM（温哥华时间）");
+  await expect(todo).toContainText("2031年3月15日 3:00 PM");
   await expect(todo).toContainText("60 分钟");
   await expect(todo).toContainText("题目会在测试开始后显示");
   await expect(todo.getByRole("button", { name: /^立即测试/ })).toBeVisible();

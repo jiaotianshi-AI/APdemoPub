@@ -83,7 +83,7 @@ test("编辑：账号名和类型是只读的；学生可设置/清空学习科�
   await expect(page.locator("#edit-username")).toHaveText(name);
   await expect(page.locator("#edit-type")).toHaveText("学生");
   // 对话框里除“学习科目”外没有任何可编辑的账号名/类型输入框
-  expect(await page.locator("#edit-dialog input, #edit-dialog select, #edit-dialog textarea").count()).toBe(1);
+  expect(await page.locator("#edit-dialog input, #edit-dialog select, #edit-dialog textarea").count()).toBe(2); // 学习科目 + 时区（账号名和类型没有输入框）
   await page.fill("#edit-subject", "AP Biology");
   await page.click("#edit-submit");
   await expect(page.locator("#edit-dialog")).toBeHidden();

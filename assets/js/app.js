@@ -66,14 +66,12 @@
 
   function formatDate(iso, tz, lang) {
     var w = wallClock(iso, tz);
-    var tzLabel = t("progress.tz." + tz);
-    if (tzLabel === "progress.tz." + tz) tzLabel = tz;
     var h12 = w.hour24 % 12 === 0 ? 12 : w.hour24 % 12;
     var clock = h12 + ":" + w.minute + " " + (w.hour24 < 12 ? "AM" : "PM");
     if (lang === "zh") {
-      return w.year + "年" + w.month + "月" + w.day + "日 " + clock + "（" + tzLabel + "）";
+      return w.year + "年" + w.month + "月" + w.day + "日 " + clock;
     }
-    return MONTHS[w.month - 1] + " " + w.day + ", " + w.year + ", " + clock + " (" + tzLabel + ")";
+    return MONTHS[w.month - 1] + " " + w.day + ", " + w.year + ", " + clock;
   }
 
   function statusText(iso) {
@@ -527,7 +525,10 @@
   function renderUser() {
     var u = state.user;
     var n = body("user-name");
-    if (n) n.textContent = u ? u.username : "";
+    if (!n) return;
+    // 账号名和所在时区一起显示，例如：Nathan（温哥华，-7）
+    var label = u && u.tzLabel ? pick(u.tzLabel) : "";
+    n.textContent = u ? (label ? (i18n.getLang() === "zh" ? u.username + "（" + label + "）" : u.username + " (" + label + ")") : u.username) : "";
   }
 
   function logout() {
