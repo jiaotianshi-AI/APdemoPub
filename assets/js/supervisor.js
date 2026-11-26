@@ -54,6 +54,11 @@
     var h12 = h % 12 === 0 ? 12 : h % 12;
     return fmtDate(wall.slice(0, 10)) + " " + h12 + ":" + wall.slice(14, 16) + " " + (h < 12 ? "AM" : "PM");
   }
+  // 文件名缩略：只留前 3 个和后 5 个字符，中间用 * 代替（名字不超过 8 个字符就完整显示）
+  function shortName(name) {
+    var c = Array.from(String(name));
+    return c.length <= 8 ? name : c.slice(0, 3).join("") + "*" + c.slice(-5).join("");
+  }
   function fmtSize(n) { return n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB"; }
 
   /* ---------- 时区提醒 ----------
@@ -128,7 +133,9 @@
       if (!items.length) ul.appendChild(el("li", "muted", "还没有文件。"));
       items.forEach(function (f, i) {
         var li = el("li", "file-item");
-        li.appendChild(el("span", "fname", "Q" + (i + 1) + "　" + f.name + "（" + fmtSize(f.size) + "）"));
+        var fn = el("span", "fname", "Q" + (i + 1) + "　" + shortName(f.name));
+        fn.title = f.name + "（" + fmtSize(f.size) + "）";
+        li.appendChild(fn);
         var wl = el("label", "weight-label", "权重");
         var wi = el("input");
         wi.type = "number";

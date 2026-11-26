@@ -25,6 +25,8 @@ async function setup(page, nStudents = 2) {
   await page.waitForFunction(() => document.querySelector("#student-list .student-btn") || !document.getElementById("no-students").hidden);
   return { sup, students, errors };
 }
+// 页面上的文件名缩略规则：超过 8 个字符时，前 3 个 + * + 后 5 个
+const shortName = (n) => { const c = Array.from(n); return c.length <= 8 ? n : c.slice(0, 3).join("") + "*" + c.slice(-5).join(""); };
 const file = (name) => ({ name, mimeType: "application/pdf", buffer: pdf(name) });
 async function fillTest(page, { date = "2031-03-15", time = "15:00", start = "2031-03-01", subject = "AP Biology", unit, files = ["题目1.pdf"] }) {
   await page.fill("#t-date", date);
@@ -34,7 +36,7 @@ async function fillTest(page, { date = "2031-03-15", time = "15:00", start = "20
   await page.fill("#t-unit", unit);
   if (files.length) {
     await page.locator("#q-files input[type=file]").setInputFiles(files.map(file));
-    for (const f of files) await expect(page.locator("#q-files .file-item", { hasText: f })).toBeVisible();
+    for (const f of files) await expect(page.locator("#q-files .file-item", { hasText: shortName(f) })).toBeVisible();
   }
 }
 const card = (page, unit) => page.locator(".test-card", { hasText: unit });
@@ -651,4 +653,16 @@ test("督导者页：折叠的展开状态在重新加载列表（如保存评�
   await toggle.focus();
   await page.keyboard.press("Space");
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
+});
+
+test("修改测试页：题目清单的文件名缩略为“前 3 个字符 + * + 后 5 个字符”，不显示文件大小", async ({ page }) => {
+  await setup(page, 1);
+  const unit = "Unit " + uid("n");
+  await page.click("#new-btn");
+  await fillTest(page, { unit, files: ["AP_Bio_2021_FRQ_Q1.pdf", "短名.pdf"] });
+  const items = page.locator("#q-files .file-item .fname");
+  await expect(items.nth(0)).toHaveText("Q1　AP_*1.pdf");
+  await expect(items.nth(1)).toHaveText("Q2　短名.pdf"); // 不超过 8 个字符：完整显示
+  await expect(items.nth(0)).toHaveAttribute("title", /^AP_Bio_2021_FRQ_Q1\.pdf（\d+ KB）$/); // 鼠标悬停可看全名
+  await expect(page.locator("#q-files")).not.toContainText("KB");
 });
