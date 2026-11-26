@@ -62,7 +62,7 @@ a { color: var(--c-primary); }
 .note { margin-top: 10px; font-size: 0.875rem; color: var(--c-muted); }
 .module-error { padding: 12px 14px; border-radius: 10px; background: var(--c-error-bg); color: var(--c-error-text); }
 
-/* ---------- 主模块：进度测试 ---------- */
+/* ---------- 主模块：进度和测试 ---------- */
 .module-primary { padding: 36px 40px 40px; border: 2px solid var(--c-primary); background: linear-gradient(135deg, var(--c-primary-soft) 0%, #ffffff 70%); box-shadow: var(--shadow-strong); }
 .module-primary .module-title { font-size: 2.5rem; color: var(--c-primary-dark); }
 .module-primary .tagline { font-size: 1.0625rem; color: var(--c-text); margin-top: 4px; }

@@ -5,7 +5,7 @@
   var dict = {
     zh: {
       "meta.title": "AP 自学演示首页",
-      "meta.description": "AP 自学网站演示页：进度测试、自学网站、自学视频与 AP 问答机器人入口（演示版）。",
+      "meta.description": "AP 自学网站演示页：进度和测试、自学网站、自学视频与 AP 问答机器人入口（演示版）。",
       "a11y.langGroup": "语言切换",
       "login.btn": "登录",
       "login.title": "登录",
@@ -16,7 +16,7 @@
       "common.loading": "加载中…",
       "error.module": "该模块暂时无法加载，请稍后刷新页面重试。",
 
-      "mod.progress.title": "进度测试",
+      "mod.progress.title": "进度和测试",
       "mod.progress.tagline": "持续跟踪和推进当前学习进度，定时测试学习成果",
       "progress.current": "当前学习内容",
       "progress.percent": "学习进度",
@@ -51,7 +51,7 @@
     },
     en: {
       "meta.title": "AP Self-Study Demo",
-      "meta.description": "AP self-study demo page: progress tests, study sites, study videos and an AP Q&A bot entry (demo version).",
+      "meta.description": "AP self-study demo page: progress and tests, study sites, study videos and an AP Q&A bot entry (demo version).",
       "a11y.langGroup": "Language",
       "login.btn": "Log in",
       "login.title": "Log in",
@@ -62,7 +62,7 @@
       "common.loading": "Loading…",
       "error.module": "This section could not be loaded right now. Please refresh the page and try again.",
 
-      "mod.progress.title": "Progress Test",
+      "mod.progress.title": "Progress and Tests",
       "mod.progress.tagline": "Track and move your current study progress forward, with scheduled tests of what you've learned",
       "progress.current": "Current study",
       "progress.percent": "Study progress",
