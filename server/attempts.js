@@ -17,13 +17,24 @@ function questionFiles(assessmentId) {
 }
 
 // 每道题一行：题号（Q1、Q2…）、题目 PDF、回答 PDF（可为空）、评分（可为空）
-function questionRows(assessmentId, { answers = true, grades = true, text = false } = {}) {
+function questionRows(assessmentId, { answers = true, grades = true, text = false, supervisor = false } = {}) {
   const base = questionFiles(assessmentId);
   const ans = new Map();
   for (const r of db.prepare(`SELECT qa.question_file_id AS qid, f.id, f.original_name AS name, f.size FROM question_answers qa
     JOIN files f ON f.id = qa.file_id WHERE qa.assessment_id = ?`).all(assessmentId)) ans.set(r.qid, { id: r.id, name: r.name, size: r.size });
   const wt = new Map();
   for (const r of db.prepare('SELECT question_file_id AS qid, weight FROM question_weights WHERE assessment_id = ?').all(assessmentId)) wt.set(r.qid, r.weight);
+  // 判分标准 PDF 和 AI 判分结果只给督导者（supervisor = true），学生永远看不到
+  const rub = new Map();
+  const aiBest = new Map();
+  if (supervisor) {
+    for (const r of db.prepare(`SELECT qr.question_file_id AS qid, f.id, f.original_name AS name, f.size FROM question_rubrics qr
+      JOIN files f ON f.id = qr.file_id WHERE qr.assessment_id = ?`).all(assessmentId)) rub.set(r.qid, { id: r.id, name: r.name, size: r.size });
+    for (const r of db.prepare(`SELECT g.* FROM ai_grades g WHERE g.assessment_id = ? AND g.status = 'ok'
+      AND g.id = (SELECT MAX(id) FROM ai_grades g2 WHERE g2.assessment_id = g.assessment_id AND g2.question_file_id = g.question_file_id AND g2.status = 'ok')`).all(assessmentId)) {
+      aiBest.set(r.question_file_id, { score: r.score, feedback: r.feedback, model: r.model, source: r.source, createdAt: r.created_at });
+    }
+  }
   const sc = new Map();
   for (const r of db.prepare('SELECT question_file_id AS qid, score FROM question_scores WHERE assessment_id = ?').all(assessmentId)) sc.set(r.qid, r.score);
   // 学生用屏幕输入作答时，每道题的回答文字（没填写为空字符串）；纸质作答或还没作答为 null
@@ -34,6 +45,7 @@ function questionRows(assessmentId, { answers = true, grades = true, text = fals
   }
   return base.map((q) => Object.assign(q, {
     label: 'Q' + q.no,
+    ...(supervisor ? { rubricFile: rub.get(q.id) || null, ai: aiBest.get(q.id) || null } : {}),
     weight: wt.has(q.id) ? wt.get(q.id) : 1,
     answerText: typed ? (Object.prototype.hasOwnProperty.call(typed, q.id) ? typed[q.id] : '') : null,
     answerFile: answers ? (ans.get(q.id) || null) : null,

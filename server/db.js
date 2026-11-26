@@ -151,6 +151,38 @@ CREATE TABLE IF NOT EXISTS question_weights (
   weight INTEGER NOT NULL CHECK (weight BETWEEN 1 AND 100),
   PRIMARY KEY (assessment_id, question_file_id)
 );
+-- 设置（键值）：AI 模型、加密后的 API 密钥、判分系统提示语等
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  updated_by TEXT
+);
+-- 每道题的判分标准 PDF（只有督导者和 AI 判分能用，学生看不到）
+CREATE TABLE IF NOT EXISTS question_rubrics (
+  assessment_id INTEGER NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
+  question_file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  PRIMARY KEY (assessment_id, question_file_id)
+);
+-- AI 判分记录（成功和失败都记录；不含学生姓名等身份信息）
+CREATE TABLE IF NOT EXISTS ai_grades (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  assessment_id INTEGER NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
+  question_file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  requested_by INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+  source TEXT NOT NULL CHECK (source IN ('text','pdf')),
+  status TEXT NOT NULL CHECK (status IN ('ok','error')),
+  score INTEGER CHECK (score BETWEEN 1 AND 5),
+  feedback TEXT,
+  model TEXT,
+  error_code TEXT,
+  error_message TEXT,
+  input_tokens INTEGER,
+  output_tokens INTEGER,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ai_grades_q ON ai_grades (assessment_id, question_file_id, id);
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ts TEXT NOT NULL,
@@ -165,7 +197,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
 if (!db.prepare('PRAGMA table_info(accounts)').all().some((c) => c.name === 'timezone')) {
   db.exec("ALTER TABLE accounts ADD COLUMN timezone TEXT NOT NULL DEFAULT 'America/Vancouver'");
 }
-if (startVersion < 4) db.exec('PRAGMA user_version = 4');
+if (startVersion < 5) db.exec('PRAGMA user_version = 5'); // 4 = 账号时区；5 = AI 判分（设置、判分标准、判分记录，只新增表）
  // 2 = 加入每题回答 PDF 与评分；3 = 加入每题权重（都只是新增表，不改旧数据）
 
 // 事务辅助：fn 抛异常则回滚

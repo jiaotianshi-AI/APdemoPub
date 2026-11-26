@@ -430,17 +430,8 @@
   }
 
   var viewing = null;
-  function aiMessage(text, isErr) { var m = $("view-ai-msg"); m.textContent = text; m.className = "msg " + (isErr ? "error" : "ok"); m.hidden = !text; }
-  function requestAi(body) {
-    aiMessage("");
-    api("POST", "/api/supervisor/assessments/" + viewing.id + "/ai-score", body).then(function () { aiMessage("已提交 AI 评分请求。"); })
-      .catch(function (e) { aiMessage(e.code === "AI_SCORING_NOT_AVAILABLE" ? "AI 评分功能尚未开放（接口已预留）。" : e.message, true); });
-  }
-  $("view-ai-all").addEventListener("click", function () { requestAi({}); });
-
   function openView(a) {
     viewing = a;
-    aiMessage("");
     $("view-summary").textContent = a.subject + " · " + a.unit + "　" + fmtWall(a.scheduledWall);
     var info = $("view-info"), qbox = $("view-questions");
     clear(info); clear(qbox);
@@ -472,11 +463,6 @@
             box.appendChild(al);
           }
         }
-        var ai = el("button", "btn", "请求 AI 评分（本题）");
-        ai.type = "button";
-        ai.setAttribute("aria-label", "请求 AI 评分：" + q.label);
-        ai.addEventListener("click", function () { requestAi({ questionFileId: q.id }); });
-        box.appendChild(ai);
         qbox.appendChild(box);
       });
     }).catch(function (e) { clear(qbox); qbox.appendChild(el("p", "msg error", e.message)); });
@@ -597,7 +583,8 @@
   var gradeForm = { assessment: null, rows: [] };
 
   // 单个回答 PDF 的选择器：返回 { value(): 文件 id 或 null, busy() }
-  function answerPicker(host, initial, qLabel) {
+  function answerPicker(host, initial, qLabel, noun, onChange) {
+    noun = noun || "回答 PDF";
     clear(host);
     var current = initial ? { id: initial.id, name: initial.name } : null;
     var busy = 0;
@@ -605,20 +592,21 @@
     var nameEl = el("span", "fname");
     var rm = el("button", "btn", "移除");
     rm.type = "button";
-    rm.setAttribute("aria-label", "移除 " + qLabel + " 的回答 PDF");
-    var picker = el("label", "picker-btn", "上传回答 PDF");
+    rm.setAttribute("aria-label", "移除 " + qLabel + " 的" + noun);
+    var picker = el("label", "picker-btn", "上传" + noun);
     var input = el("input");
     input.type = "file";
     input.accept = "application/pdf,.pdf";
-    input.setAttribute("aria-label", "选择 " + qLabel + " 的回答 PDF");
+    input.setAttribute("aria-label", "选择 " + qLabel + " 的" + noun);
     picker.appendChild(input);
     var note = el("p", "upload-note");
     note.setAttribute("role", "status");
     function draw() {
       nameEl.textContent = current ? current.name : "（暂无，可为空）";
+      if (onChange) onChange(current);
       nameEl.className = current ? "fname" : "fname muted";
       rm.hidden = !current;
-      picker.firstChild.textContent = current ? "替换" : "上传回答 PDF";
+      picker.firstChild.textContent = current ? "替换" : "上传" + noun;
     }
     rm.addEventListener("click", function () { current = null; draw(); });
     input.addEventListener("change", function () {
@@ -641,6 +629,89 @@
     host.appendChild(note);
     draw();
     return { value: function () { return current ? current.id : null; }, busy: function () { return busy > 0; } };
+  }
+
+  /* ---------- AI 判分 ---------- */
+  function aiErr(e) { return e && e.message ? e.message : "AI 评分失败，请稍后再试。"; }
+  function fmtDateTime(iso) { try { return new Date(iso).toLocaleString("zh-CN", { hour12: false }); } catch (e) { return iso; } }
+
+  function aiBlock(q, row) {
+    var box = el("div", "ai-box");
+    box.appendChild(el("p", "label", "AI 评分（把题目、学生回答、判分标准三样发给 AI）"));
+    var src = el("fieldset", "ai-source");
+    src.appendChild(el("legend", "sr-only", q.label + " 学生回答的来源（二选一）"));
+    var opts = {};
+    [["text", "学生输入的回答文字"], ["pdf", "回答 PDF"]].forEach(function (o) {
+      var l = el("label", "ai-opt");
+      var r = el("input");
+      r.type = "radio";
+      r.name = "ai-src-" + q.id;
+      r.value = o[0];
+      l.appendChild(r);
+      l.appendChild(el("span", "", o[1]));
+      src.appendChild(l);
+      opts[o[0]] = r;
+    });
+    box.appendChild(src);
+    var line = el("div", "ai-line");
+    var btn = el("button", "btn", "请求 AI 评分");
+    btn.type = "button";
+    btn.setAttribute("aria-label", "请求 AI 评分：" + q.label);
+    var status = el("p", "ai-status");
+    status.setAttribute("role", "status");
+    line.appendChild(btn);
+    box.appendChild(line);
+    box.appendChild(status);
+    var out = el("div", "ai-result");
+    box.appendChild(out);
+
+    function hasText() { return !!(q.answerText && q.answerText.trim()); }
+    function refresh() {
+      var hasPdf = !!row.answer.value();
+      opts.text.disabled = !hasText();
+      opts.pdf.disabled = !hasPdf;
+      if (!opts.text.checked && !opts.pdf.checked) { if (hasPdf) opts.pdf.checked = true; else if (hasText()) opts.text.checked = true; }
+      if (opts.text.checked && !hasText()) opts.text.checked = false;
+      if (opts.pdf.checked && !hasPdf) opts.pdf.checked = false;
+      if (!opts.text.checked && !opts.pdf.checked) { if (hasPdf) opts.pdf.checked = true; else if (hasText()) opts.text.checked = true; }
+    }
+    function drawResult(r) {
+      clear(out);
+      if (!r) return;
+      var head = el("p", "ai-score", "AI 建议评分：" + r.score + " / 5");
+      out.appendChild(head);
+      out.appendChild(el("p", "ai-meta", "模型 " + r.model + "　·　依据：" + (r.source === "pdf" ? "回答 PDF" : "回答文字") + "　·　" + fmtDateTime(r.createdAt)));
+      out.appendChild(el("div", "answer-text", r.feedback || "（AI 没有给出文字反馈）"));
+      var adopt = el("button", "btn primary", "采用此评分（" + r.score + "）");
+      adopt.type = "button";
+      adopt.setAttribute("aria-label", "采用 " + q.label + " 的 AI 评分 " + r.score);
+      adopt.addEventListener("click", function () { row.select.value = String(r.score); updateOverall(); status.textContent = "已填入 " + q.label + " 的评分 " + r.score + "，点下面的“保存”后生效。"; });
+      out.appendChild(adopt);
+    }
+    var running = false;
+    function run() {
+      if (running) return Promise.resolve();
+      status.textContent = "";
+      status.className = "ai-status";
+      var source = opts.pdf.checked ? "pdf" : opts.text.checked ? "text" : null;
+      if (!source) { status.textContent = "没有可用的学生回答：学生没有输入文字，也没有回答 PDF。"; status.className = "ai-status bad"; return Promise.resolve(); }
+      if (!row.rubric.value()) { status.textContent = "请先上传这道题的判分标准 PDF。"; status.className = "ai-status bad"; return Promise.resolve(); }
+      if (row.rubric.busy() || row.answer.busy()) { status.textContent = "文件还在上传，请稍等。"; status.className = "ai-status bad"; return Promise.resolve(); }
+      running = true;
+      btn.disabled = true;
+      status.textContent = "AI 评分中…（通常需要几十秒到一两分钟，请不要关闭页面）";
+      return api("POST", "/api/supervisor/assessments/" + gradeForm.assessment.id + "/ai-score", {
+        questionFileId: q.id, answerSource: source, answerFileId: source === "pdf" ? row.answer.value() : undefined, rubricFileId: row.rubric.value()
+      }).then(function (d) {
+        drawResult(d.result);
+        status.textContent = "AI 已评分：" + d.result.score + " / 5（建议值，需要你确认采用）。";
+        return d.result;
+      }).catch(function (e) { status.textContent = aiErr(e); status.className = "ai-status bad"; return null; })
+        .then(function (r) { running = false; btn.disabled = false; return r; });
+    }
+    btn.addEventListener("click", run);
+    drawResult(q.ai);
+    return { el: box, refresh: refresh, run: run, canRun: function () { return !!row.rubric.value() && (opts.pdf.checked || opts.text.checked); } };
   }
 
   function summarizeScores(scores, weights) { // 与服务器 server/scoring.js 的公式一致，只用于预览
@@ -666,6 +737,7 @@
     showMsg("score-error", "");
     $("score-summary").textContent = a.subject + " · " + a.unit + "　" + fmtWall(a.scheduledWall);
     $("formula-hint").textContent = FORMULA_TEXT;
+    $("ai-all-msg").hidden = true;
     var host = $("grade-rows");
     clear(host);
     a.questionFiles.forEach(function (q) {
@@ -683,9 +755,20 @@
         box.appendChild(el("p", "muted", "学生输入的回答文字"));
         box.appendChild(el("div", "answer-text", q.answerText.trim() ? q.answerText : "（没有填写）"));
       }
+      var row = { q: q };
+      var aiPart = null;
+      var onFileChange = function () { if (aiPart) aiPart.refresh(); };
       var ansHost = el("div", "ans-host");
-      var picker = answerPicker(ansHost, q.answerFile, q.label);
+      var picker = answerPicker(ansHost, q.answerFile, q.label, "回答 PDF", onFileChange);
       box.appendChild(ansHost);
+      var rubHost = el("div", "ans-host");
+      rubHost.appendChild(el("p", "label", q.label + " 判分标准 PDF（AI 评分需要，学生看不到）"));
+      var rubInner = el("div");
+      rubHost.appendChild(rubInner);
+      var rubric = answerPicker(rubInner, q.rubricFile, q.label, "判分标准 PDF", onFileChange);
+      box.appendChild(rubHost);
+      row.answer = picker;
+      row.rubric = rubric;
       var wf = el("div", "field");
       var wl = el("label", "", q.label + " 权重（1–100 的整数）");
       var wi = el("input");
@@ -715,8 +798,13 @@
       f.appendChild(l);
       f.appendChild(sel);
       box.appendChild(f);
+      row.picker = picker; row.select = sel; row.weight = wi;
+      aiPart = aiBlock(q, row);
+      row.ai = aiPart;
+      box.appendChild(aiPart.el);
+      aiPart.refresh();
       host.appendChild(box);
-      gradeForm.rows.push({ q: q, picker: picker, select: sel, weight: wi });
+      gradeForm.rows.push(row);
     });
     updateOverall();
     openDialog($("score-dialog"));
@@ -724,15 +812,36 @@
     if (first) first.focus();
   }
 
+  $("ai-all-btn").addEventListener("click", function () {
+    var msg = $("ai-all-msg");
+    var todo = gradeForm.rows.filter(function (r) { return r.ai.canRun(); });
+    var skipped = gradeForm.rows.length - todo.length;
+    msg.hidden = false;
+    msg.className = "msg";
+    if (!todo.length) { msg.textContent = "没有可以请求 AI 评分的题目：每道题需要判分标准 PDF，以及学生的回答（文字或回答 PDF）。"; msg.className = "msg error"; return; }
+    $("ai-all-btn").disabled = true;
+    var done = 0, ok = 0;
+    todo.reduce(function (p, r) {
+      return p.then(function () {
+        msg.textContent = "AI 评分中：第 " + (done + 1) + " / " + todo.length + " 题（" + r.q.label + "）…";
+        return r.ai.run().then(function (res) { done += 1; if (res) ok += 1; });
+      });
+    }, Promise.resolve()).then(function () {
+      msg.textContent = "完成：" + ok + " / " + todo.length + " 题已得到 AI 建议评分" + (skipped ? "；" + skipped + " 题缺少判分标准或学生回答，已跳过" : "") + "。请逐题查看并点“采用此评分”，再保存。";
+      msg.className = ok === todo.length ? "msg ok" : "msg error";
+      $("ai-all-btn").disabled = false;
+    });
+  });
+
   $("score-form").addEventListener("submit", function (e) {
     e.preventDefault();
     showMsg("score-error", "");
-    if (gradeForm.rows.some(function (r) { return r.picker.busy(); })) return showMsg("score-error", "文件还在上传，请稍等。");
+    if (gradeForm.rows.some(function (r) { return r.picker.busy() || r.rubric.busy(); })) return showMsg("score-error", "文件还在上传，请稍等。");
     var a = gradeForm.assessment;
     var bad = gradeForm.rows.filter(function (r) { var w = Number(r.weight.value); return r.weight.value === "" || !Number.isInteger(w) || w < 1 || w > 100; });
     if (bad.length) return showMsg("score-error", "每道题的权重必须是 1–100 的整数。");
     var questions = gradeForm.rows.map(function (r) {
-      return { questionFileId: r.q.id, answerFileId: r.picker.value(), score: r.select.value === "" ? null : Number(r.select.value), weight: Number(r.weight.value) };
+      return { questionFileId: r.q.id, answerFileId: r.picker.value(), rubricFileId: r.rubric.value(), score: r.select.value === "" ? null : Number(r.select.value), weight: Number(r.weight.value) };
     });
     $("score-submit").disabled = true;
     api("PATCH", "/api/supervisor/assessments/" + a.id, { questions: questions }).then(function (data) {

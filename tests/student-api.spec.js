@@ -232,7 +232,7 @@ test("离开页面的记录：督导者能看到次数和时长；为打开题�
   await tctx.dispose();
 });
 
-test("督导者：测试进行中不能修改/删除；提交后只能改分数和答题文件；时长校验；AI 评分接口已预留", async ({ playwright, baseURL }) => {
+test("督导者：测试进行中不能修改/删除；提交后只能改分数和答题文件；时长校验；AI 评分接口需要参数", async ({ playwright, baseURL }) => {
   const { tctx, sctx, qs, asm } = await scenario(playwright, baseURL);
   const patch = (data) => sctx.patch(`/api/supervisor/assessments/${asm.id}`, { headers: H, data });
   for (const bad of [4, 301, 59.5, "60", 0]) expect((await patch({ durationMinutes: bad })).status(), String(bad)).toBe(422);
@@ -253,9 +253,9 @@ test("督导者：测试进行中不能修改/删除；提交后只能改分数�
   expect((await patch({ questionFileIds: [qs[0].id] })).status()).toBe(409);
   expect((await patch({ scheduledWall: "2031-05-05T10:00" })).status()).toBe(409);
   expect((await sctx.delete(`/api/supervisor/assessments/${asm.id}`, { headers: H })).status()).toBe(409);
+  // AI 评分接口已实现（详见 tests/ai.spec.js）：缺少判分标准等参数时被拒绝
   const ai = await sctx.post(`/api/supervisor/assessments/${asm.id}/ai-score`, { headers: H, data: { questionFileId: qs[0].id } });
-  expect(ai.status()).toBe(501);
-  expect((await ai.json()).error).toBe("AI_SCORING_NOT_AVAILABLE");
+  expect(ai.status()).toBe(422);
   const g = await patch({ questions: qs.map((q) => ({ questionFileId: q.id, score: 5 })) });
   expect((await g.json()).assessment.status).toBe("graded");
   expect((await patch({ score: 5 })).status()).toBe(409); // 整体评分字段已不再支持

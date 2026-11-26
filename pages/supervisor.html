@@ -95,6 +95,11 @@
       <h2 id="score-title">答题与评分</h2>
       <p id="score-summary" class="muted"></p>
       <p class="hint" id="formula-hint"></p>
+      <div class="ai-all-row">
+        <button type="button" class="btn" id="ai-all-btn">为所有题目请求 AI 评分</button>
+        <span class="hint" id="ai-all-hint"></span>
+      </div>
+      <p id="ai-all-msg" class="msg" role="status" hidden></p>
       <div id="grade-rows"></div>
       <p id="grade-overall" class="overall" role="status"></p>
       <p id="score-error" class="msg error" role="alert" hidden></p>
@@ -112,9 +117,8 @@
       <p id="view-summary" class="muted"></p>
       <div id="view-info"></div>
       <div id="view-questions"></div>
-      <p id="view-ai-msg" class="msg" role="status" hidden></p>
+      <p class="hint">要请求 AI 评分，请在“答题与评分”里为每道题上传判分标准 PDF 后操作。</p>
       <div class="dialog-actions">
-        <button type="button" class="btn" id="view-ai-all">请求 AI 评分（整次测试）</button>
         <button type="button" class="btn primary" data-close>关闭</button>
       </div>
     </div>

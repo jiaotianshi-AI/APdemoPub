@@ -33,7 +33,8 @@ function saveUpload(req, uploaderId) {
     if (declared > config.maxUploadBytes) return reject(httpError(413, 'FILE_TOO_LARGE', `文件不能超过 ${Math.round(config.maxUploadBytes / 1048576)}MB。`));
 
     const pending = db.prepare(`SELECT COUNT(*) AS n FROM files f WHERE f.uploaded_by = ?
-      AND NOT EXISTS (SELECT 1 FROM assessment_files af WHERE af.file_id = f.id)`).get(uploaderId).n;
+      AND NOT EXISTS (SELECT 1 FROM assessment_files af WHERE af.file_id = f.id)
+      AND NOT EXISTS (SELECT 1 FROM question_rubrics qr WHERE qr.file_id = f.id)`).get(uploaderId).n;
     if (pending >= config.maxPendingUploads) return reject(httpError(429, 'TOO_MANY_PENDING', '有太多还没使用的文件，请先提交或删除后再上传。'));
 
     const storedName = crypto.randomBytes(16).toString('hex') + '.pdf';
@@ -83,9 +84,9 @@ function removeFileRow(row) {
 
 // 关联被移除后调用：没有任何测试再用这个文件时，立即删除
 function deleteIfUnreferenced(fileIds) {
-  const q = db.prepare('SELECT * FROM files WHERE id = ? AND NOT EXISTS (SELECT 1 FROM assessment_files WHERE file_id = ?)');
+  const q = db.prepare('SELECT * FROM files WHERE id = ? AND NOT EXISTS (SELECT 1 FROM assessment_files WHERE file_id = ?) AND NOT EXISTS (SELECT 1 FROM question_rubrics WHERE file_id = ?)');
   for (const id of fileIds) {
-    const row = q.get(id, id);
+    const row = q.get(id, id, id);
     if (row) removeFileRow(row);
   }
 }
@@ -94,7 +95,8 @@ function deleteIfUnreferenced(fileIds) {
 function gcFiles(graceMinutes) {
   const cutoff = new Date(Date.now() - graceMinutes * 60000).toISOString();
   const rows = db.prepare(`SELECT * FROM files f WHERE f.created_at < ?
-    AND NOT EXISTS (SELECT 1 FROM assessment_files af WHERE af.file_id = f.id)`).all(cutoff);
+    AND NOT EXISTS (SELECT 1 FROM assessment_files af WHERE af.file_id = f.id)
+    AND NOT EXISTS (SELECT 1 FROM question_rubrics qr WHERE qr.file_id = f.id)`).all(cutoff);
   rows.forEach(removeFileRow);
   return rows.length;
 }

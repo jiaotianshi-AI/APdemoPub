@@ -44,6 +44,12 @@ cd ~/APdemoPub && git pull && sudo bash deploy/update.sh
 - 升级前建议先手动备份一次：`sudo bash /opt/apdemo/deploy/backup.sh`。
 - 升级命令不变：`cd ~/APdemoPub && git pull && sudo bash deploy/update.sh`。
 
+## 启用 AI 判分（可选）
+1. 确认服务器能出站访问 `api.anthropic.com`（443）：`curl -sI https://api.anthropic.com | head -1`（出现 `HTTP/2 404` 之类也说明网络是通的）。腾讯云轻量服务器默认放行出站。
+2. 用管理员登录，打开 `https://apdemo.locprof.com/admin/ai`，填写模型和 API 密钥，点“测试连通性”，确认成功后点“保存设置”。
+3. 密钥加密保存，加密主密钥文件是 `/var/lib/apdemo/master.key`（自动生成，权限 600）。**每日备份不包含它**；如果你把数据库恢复到另一台服务器，需要在 `/admin/ai` 重新填写密钥。不要把 `master.key` 复制到公开的地方。
+4. 会产生 AI 服务商的费用（按 token 计费，PDF 也会消耗 token）。每个督导者每小时最多 60 次请求，可用环境变量 `AI_MAX_PER_HOUR` 调整（写在 `deploy/apdemo.service` 的 `Environment=` 里，然后 `sudo systemctl daemon-reload && sudo systemctl restart apdemo`）。
+
 ## 常用操作
 - 管理员忘记密码：`sudo bash /opt/apdemo/deploy/create-admin.sh 账号名 reset`
 - 看日志：`sudo journalctl -u apdemo -n 50 --no-pager`

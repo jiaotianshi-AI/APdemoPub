@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>后台管理 - AI 评分设置</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/assets/css/auth.css">
+  <link rel="stylesheet" href="/assets/css/admin.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">AP 专注学习 · 后台管理</div>
+      <nav class="admin-nav" aria-label="后台导航">
+        <a href="/admin" class="nav-link">账号管理</a>
+        <a href="/admin/ai" class="nav-link" aria-current="page">AI 评分设置</a>
+      </nav>
+      <div class="topbar-right">
+        <span class="who" id="whoami"></span>
+        <button type="button" class="btn" id="logout-btn">退出登录</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="admin ai-settings">
+    <h1>AI 评分设置</h1>
+    <p class="muted">家长/老师在评分时可以把一道题交给 AI 判分：系统把<strong>题目 PDF</strong>、<strong>学生的回答（文字或回答 PDF，二选一）</strong>和<strong>判分标准 PDF</strong>这三样发给下面设定的 AI，AI 按判分标准给出 1–5 的评分和反馈，返回给家长/老师参考，由家长/老师决定是否采用。</p>
+    <p class="notice" role="note">隐私提醒：这三份材料会从服务器发送到 AI 服务商（Anthropic）处理，不包含学生的账号名等身份信息，但学生的答题内容和题目文件会离开本服务器。请确认你有权这样处理这些材料，并已告知学生和家长。</p>
+
+    <form id="ai-form" novalidate>
+      <section class="panel-block" aria-labelledby="model-title">
+        <h2 id="model-title">1. 模型与 API 密钥</h2>
+        <div class="field">
+          <label for="ai-model">判分用的 AI 模型</label>
+          <input id="ai-model" type="text" list="model-list" autocomplete="off" spellcheck="false" maxlength="100">
+          <datalist id="model-list"></datalist>
+          <span class="hint" id="model-hint">服务商：Anthropic（Claude）。可以从列表里选，也可以直接输入模型名称。</span>
+        </div>
+        <div class="field">
+          <label for="ai-key">API 密钥</label>
+          <input id="ai-key" type="password" autocomplete="new-password" spellcheck="false" maxlength="500" placeholder="">
+          <span class="hint" id="key-hint"></span>
+        </div>
+        <div class="row-actions">
+          <button type="button" class="btn" id="test-btn">测试连通性</button>
+          <button type="button" class="btn danger" id="clear-key-btn" hidden>删除已保存的密钥</button>
+        </div>
+        <p id="test-result" class="msg" role="status" hidden></p>
+      </section>
+
+      <section class="panel-block" aria-labelledby="prompt-title">
+        <h2 id="prompt-title">2. 判分系统提示语</h2>
+        <div class="field">
+          <label for="ai-prompt">系统提示语（可编辑）</label>
+          <textarea id="ai-prompt" rows="16" spellcheck="false"></textarea>
+          <span class="hint" id="prompt-hint">每次判分都会带上这段提示语。AI 的输出格式（评分 1–5 的整数 + 反馈）由系统固定，不需要在这里写格式要求。</span>
+        </div>
+        <div class="row-actions">
+          <button type="button" class="btn" id="reset-prompt-btn">恢复默认提示语</button>
+        </div>
+      </section>
+
+      <p id="save-msg" class="msg" role="status" hidden></p>
+      <div class="row-actions">
+        <button type="submit" class="btn primary" id="save-btn">保存设置</button>
+      </div>
+    </form>
+  </main>
+
+  <script src="/assets/js/page-common.js"></script>
+  <script src="/assets/js/admin-ai.js"></script>
+</body>
+</html>

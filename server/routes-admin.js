@@ -197,6 +197,7 @@ function deleteAccount(res, ctx, idText) {
 }
 
 module.exports = async function adminApi(req, res, pathname, ctx) {
+  if (pathname === '/api/admin/ai' || pathname.startsWith('/api/admin/ai/')) return require('./routes-admin-ai')(req, res, pathname, ctx);
   const url = new URL(req.url, 'http://localhost');
   if (pathname === '/api/admin/accounts') {
     if (req.method === 'GET') return listAccounts(req, res, url);

@@ -8,6 +8,8 @@ const attempts = require('./attempts');
 const { wallToIso, dateToIso, isoToWall } = require('./timeutil');
 const tzs = require('./timezones');
 const scoring = require('./scoring');
+const settings = require('./settings');
+const ai = require('./ai');
 
 const TEXT_MAX = 64;
 const DURATION_MIN = 5;
@@ -72,12 +74,13 @@ function cleanFileIds(value, ctx, role, { min }) {
   if (ids.length > config.maxFilesPerRole) throw httpError(422, 'TOO_MANY_FILES', `每条测试的${role === 'question' ? '题目' : '答题'}文件最多 ${config.maxFilesPerRole} 个。`);
   if (ids.length < min) throw httpError(422, 'NO_FILES', '请至少上传一个题目 PDF。');
   const get = db.prepare('SELECT * FROM files WHERE id = ?');
-  const usedBy = db.prepare(`SELECT a.student_id FROM assessment_files af JOIN assessments a ON a.id = af.assessment_id WHERE af.file_id = ?`);
+  const usedBy = db.prepare(`SELECT a.student_id FROM assessment_files af JOIN assessments a ON a.id = af.assessment_id WHERE af.file_id = ?
+    UNION SELECT a.student_id FROM question_rubrics qr JOIN assessments a ON a.id = qr.assessment_id WHERE qr.file_id = ?`);
   for (const id of ids) {
     const f = get.get(id);
     if (!f) throw httpError(422, 'INVALID_FILES', '有文件不存在，请重新上传。');
     const mine = f.uploaded_by === ctx.account.id;
-    const visible = usedBy.all(id).some((r) => isLinked(ctx.account.id, r.student_id));
+    const visible = usedBy.all(id, id).some((r) => isLinked(ctx.account.id, r.student_id));
     if (!mine && !visible) throw httpError(422, 'INVALID_FILES', '有文件不存在，请重新上传。');
   }
   return ids;
@@ -97,7 +100,7 @@ function attemptInfo(assessmentId, tz) {
   return att ? withWalls(att, tz) : null;
 }
 function serialize(a) {
-  const qs = attempts.questionRows(a.id, { text: true });
+  const qs = attempts.questionRows(a.id, { text: true, supervisor: true });
   const sum = scoring.summarize(qs.map((q) => q.score), qs.map((q) => q.weight));
   return {
     id: a.id, studentId: a.student_id, subject: a.subject, unit: a.unit,
@@ -203,7 +206,7 @@ function cleanQuestionUpdates(value, validQuestionIds, ctx) {
   const out = [];
   for (const item of value) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) throw httpError(422, 'INVALID_QUESTIONS', '题目评分/回答的格式不正确。');
-    const bad = Object.keys(item).filter((k) => !['questionFileId', 'answerFileId', 'score', 'weight'].includes(k));
+    const bad = Object.keys(item).filter((k) => !['questionFileId', 'answerFileId', 'score', 'weight', 'rubricFileId'].includes(k));
     if (bad.length) throw httpError(422, 'INVALID_QUESTIONS', '题目评分/回答里有不支持的内容。');
     const qid = item.questionFileId;
     if (!Number.isInteger(qid) || !validQuestionIds.includes(qid)) throw httpError(422, 'INVALID_QUESTION', '有题目不属于这场测试。');
@@ -217,6 +220,10 @@ function cleanQuestionUpdates(value, validQuestionIds, ctx) {
     if ('weight' in item) {
       if (!scoring.isValidWeight(item.weight)) throw httpError(422, 'INVALID_WEIGHT', `每题的权重必须是 ${scoring.MIN_WEIGHT}–${scoring.MAX_WEIGHT} 的整数。`);
       u.weight = item.weight;
+    }
+    if ('rubricFileId' in item) {
+      if (item.rubricFileId !== null) cleanFileIds([item.rubricFileId], ctx, 'rubric', { min: 1 });
+      u.rubricFileId = item.rubricFileId;
     }
     if ('answerFileId' in item) {
       if (item.answerFileId !== null) cleanFileIds([item.answerFileId], ctx, 'answer', { min: 1 });
@@ -279,6 +286,9 @@ async function updateAssessment(req, res, ctx, idText) {
         db.prepare('DELETE FROM question_answers WHERE assessment_id = ? AND question_file_id = ?').run(a.id, q);
         db.prepare('DELETE FROM question_scores WHERE assessment_id = ? AND question_file_id = ?').run(a.id, q);
         db.prepare('DELETE FROM question_weights WHERE assessment_id = ? AND question_file_id = ?').run(a.id, q);
+        const rb = db.prepare('SELECT file_id FROM question_rubrics WHERE assessment_id = ? AND question_file_id = ?').get(a.id, q);
+        if (rb) gone.push(rb.file_id);
+        db.prepare('DELETE FROM question_rubrics WHERE assessment_id = ? AND question_file_id = ?').run(a.id, q);
       }
       // 新加入的题目默认权重 1（没有记录即为 1），按需要由 questionWeights 设置
     }
@@ -298,6 +308,11 @@ async function updateAssessment(req, res, ctx, idText) {
             db.prepare("INSERT OR IGNORE INTO assessment_files (assessment_id, file_id, role, position) VALUES (?, ?, 'answer', 0)").run(a.id, u.answerFileId);
             db.prepare('INSERT OR REPLACE INTO question_answers (assessment_id, question_file_id, file_id) VALUES (?, ?, ?)').run(a.id, u.questionFileId, u.answerFileId);
           }
+        }
+        if ('rubricFileId' in u) {
+          const old = db.prepare('SELECT file_id FROM question_rubrics WHERE assessment_id = ? AND question_file_id = ?').get(a.id, u.questionFileId);
+          if (old && old.file_id !== u.rubricFileId) { db.prepare('DELETE FROM question_rubrics WHERE assessment_id = ? AND question_file_id = ?').run(a.id, u.questionFileId); gone.push(old.file_id); }
+          if (u.rubricFileId !== null) db.prepare('INSERT OR REPLACE INTO question_rubrics (assessment_id, question_file_id, file_id) VALUES (?, ?, ?)').run(a.id, u.questionFileId, u.rubricFileId);
         }
         if ('weight' in u) db.prepare('INSERT OR REPLACE INTO question_weights (assessment_id, question_file_id, weight) VALUES (?, ?, ?)').run(a.id, u.questionFileId, u.weight);
         if ('score' in u) {
@@ -320,24 +335,78 @@ function viewAttempt(res, ctx, idText) {
   attempts.finalizeOverdue();
   const a = requireAssessment(ctx, idText);
   const att = attempts.getAttempt(a.id);
-  const rows = attempts.questionRows(a.id, { text: true });
+  const rows = attempts.questionRows(a.id, { text: true, supervisor: true });
   if (!att) return sendJson(res, 200, { attempt: null, questions: rows.map((q) => Object.assign(q, { answer: null })) });
   const answers = attempts.answersOf(att.id);
   const questions = rows.map((q) => Object.assign(q, { answer: Object.prototype.hasOwnProperty.call(answers, q.id) ? answers[q.id] : null }));
   sendJson(res, 200, { attempt: withWalls(att, a.timezone), questions });
 }
 
-// AI 评分：接口已预留，尚未开发。以后按题目（questionFileId）或整次测试请求评分。
+// AI 判分：把 3 样东西发给管理员设定的 AI —— ① 题目 PDF ② 学生回答（文字或 PDF，二选一）③ 判分标准 PDF。
+// 结果（评分 1–5 + 反馈）返回给督导者，由督导者决定是否采用；这里不会自动写入每题评分。
+const aiBusy = new Set();
+
+function aiFile(ctx, id, what) {
+  if (!Number.isInteger(id)) throw httpError(422, 'INVALID_FILE', `请先上传${what}。`);
+  cleanFileIds([id], ctx, 'ai', { min: 1 }); // 只能用自己上传的、或关联学生测试里的文件
+  return db.prepare('SELECT * FROM files WHERE id = ?').get(id);
+}
+
 async function requestAiScore(req, res, ctx, idText) {
-  requireAssessment(ctx, idText);
-  await readJson(req);
-  throw httpError(501, 'AI_SCORING_NOT_AVAILABLE', 'AI 评分功能尚未开放，接口已预留。');
+  const a = requireAssessment(ctx, idText);
+  const body = await readJson(req);
+  attempts.finalizeOverdue();
+  const fresh = db.prepare('SELECT * FROM assessments WHERE id = ?').get(a.id);
+  if (fresh.status === 'in_progress') throw httpError(409, 'IN_PROGRESS', '学生正在测试，完成后才能请求 AI 评分。');
+
+  const qid = body.questionFileId;
+  const qrow = attempts.questionRows(a.id, { text: true }).find((q) => q.id === qid);
+  if (!qrow) throw httpError(422, 'INVALID_QUESTION', '请选择这场测试里的一道题。');
+  if (!['text', 'pdf'].includes(body.answerSource)) throw httpError(422, 'INVALID_SOURCE', '学生回答请二选一：文字，或回答 PDF。');
+  const rubric = aiFile(ctx, body.rubricFileId, '这道题的判分标准 PDF');
+  const input = { questionFile: db.prepare('SELECT * FROM files WHERE id = ?').get(qid), rubricFile: rubric };
+  if (body.answerSource === 'text') {
+    if (qrow.answerText === null || qrow.answerText === undefined || !qrow.answerText.trim()) throw httpError(422, 'NO_ANSWER_TEXT', '学生没有为这道题输入回答文字（纸质作答或没有填写）。请改用回答 PDF。');
+    input.answerText = qrow.answerText;
+  } else {
+    input.answerFile = aiFile(ctx, body.answerFileId, '这道题的回答 PDF');
+    if (input.answerFile.id === rubric.id) throw httpError(422, 'SAME_FILE', '回答 PDF 和判分标准不能是同一个文件。');
+  }
+
+  const cfg = settings.getAi();
+  if (!cfg.apiKey) throw httpError(409, 'AI_NOT_CONFIGURED', 'AI 评分还没有配置：请管理员在“AI 评分设置”里填写模型和 API 密钥。');
+  const since = new Date(Date.now() - 3600 * 1000).toISOString();
+  if (db.prepare('SELECT COUNT(*) AS n FROM ai_grades WHERE requested_by = ? AND created_at > ?').get(ctx.account.id, since).n >= config.aiMaxPerHour) {
+    throw httpError(429, 'AI_RATE_LIMIT', `一小时内最多请求 ${config.aiMaxPerHour} 次 AI 评分，请稍后再试。`);
+  }
+  const key = a.id + ':' + qid;
+  if (aiBusy.has(key)) throw httpError(409, 'AI_BUSY', '这道题正在评分中，请稍等。');
+  aiBusy.add(key);
+  const now = () => new Date().toISOString();
+  try {
+    let result;
+    try {
+      result = await ai.grade({ apiKey: cfg.apiKey, model: cfg.model, systemPrompt: cfg.systemPrompt }, input);
+    } catch (e) {
+      const code = e && e.code ? e.code : 'AI_ERROR';
+      const message = e instanceof ai.AiError ? e.message : 'AI 评分出错了，请稍后再试。';
+      db.prepare('INSERT INTO ai_grades (assessment_id, question_file_id, requested_by, source, status, model, error_code, error_message, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(a.id, qid, ctx.account.id, body.answerSource, 'error', cfg.model, code, message.slice(0, 500), now());
+      audit(ctx.account.username, 'ai_score_failed', String(a.id), code);
+      throw httpError(e instanceof ai.AiError ? e.status : 502, code, message);
+    }
+    const at = now();
+    db.prepare('INSERT INTO ai_grades (assessment_id, question_file_id, requested_by, source, status, score, feedback, model, input_tokens, output_tokens, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(a.id, qid, ctx.account.id, body.answerSource, 'ok', result.score, result.feedback, result.model, result.inputTokens || null, result.outputTokens || null, at);
+    audit(ctx.account.username, 'ai_score', String(a.id), `Q${qrow.no} ${body.answerSource} → ${result.score}`);
+    sendJson(res, 200, { result: { questionFileId: qid, score: result.score, feedback: result.feedback, model: result.model, source: body.answerSource, createdAt: at } });
+  } finally { aiBusy.delete(key); }
 }
 
 function deleteAssessment(res, ctx, idText) {
   const a = requireAssessment(ctx, idText);
   if (a.status !== 'scheduled') throw httpError(409, 'NOT_DELETABLE', '只有还没开始的待测试才能删除。');
-  const fileIds = db.prepare('SELECT file_id FROM assessment_files WHERE assessment_id = ?').all(a.id).map((r) => r.file_id);
+  const fileIds = db.prepare('SELECT file_id FROM assessment_files WHERE assessment_id = ? UNION SELECT file_id FROM question_rubrics WHERE assessment_id = ?').all(a.id, a.id).map((r) => r.file_id);
   db.prepare('DELETE FROM assessments WHERE id = ?').run(a.id);
   files.deleteIfUnreferenced(fileIds);
   audit(ctx.account.username, 'delete_assessment', String(a.id));
@@ -360,6 +429,8 @@ async function retake(req, res, ctx, idText) {
       SELECT ?, file_id, role, position FROM assessment_files WHERE assessment_id = ? AND role = 'question'`).run(id, a.id);
     db.prepare(`INSERT INTO question_weights (assessment_id, question_file_id, weight)
       SELECT ?, question_file_id, weight FROM question_weights WHERE assessment_id = ?`).run(id, a.id);
+    db.prepare(`INSERT INTO question_rubrics (assessment_id, question_file_id, file_id)
+      SELECT ?, question_file_id, file_id FROM question_rubrics WHERE assessment_id = ?`).run(id, a.id); // 判分标准属于题目设计，重测时一并复制
     return id;
   });
   audit(ctx.account.username, 'retake_assessment', String(a.id), `新记录 ${newId}`);
@@ -376,7 +447,7 @@ function downloadFile(req, res, ctx, idText) {
   const f = Number.isInteger(id) ? db.prepare('SELECT * FROM files WHERE id = ?').get(id) : null;
   let ok = false;
   if (f) {
-    const users = db.prepare('SELECT a.student_id FROM assessment_files af JOIN assessments a ON a.id = af.assessment_id WHERE af.file_id = ?').all(f.id);
+    const users = db.prepare('SELECT a.student_id FROM assessment_files af JOIN assessments a ON a.id = af.assessment_id WHERE af.file_id = ? UNION SELECT a.student_id FROM question_rubrics qr JOIN assessments a ON a.id = qr.assessment_id WHERE qr.file_id = ?').all(f.id, f.id);
     ok = users.length ? users.some((r) => isLinked(ctx.account.id, r.student_id)) : f.uploaded_by === ctx.account.id;
   }
   if (!ok) throw httpError(404, 'NOT_FOUND', '没有找到这个文件。');

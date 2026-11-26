@@ -22,7 +22,7 @@ const PUBLIC_FILES = new Set(['/assets/css/auth.css', '/assets/js/login.js']);
 const CHANGE_PW_FILES = new Set(['/assets/css/auth.css', '/assets/js/change-password.js']);
 // 仅特定角色可取的文件
 const ROLE_FILES = {
-  '/assets/css/admin.css': 'admin', '/assets/js/admin.js': 'admin',
+  '/assets/css/admin.css': 'admin', '/assets/js/admin.js': 'admin', '/assets/js/admin-ai.js': 'admin',
   '/assets/css/supervisor.css': 'supervisor', '/assets/js/supervisor.js': 'supervisor',
   '/assets/css/exam.css': 'student', '/assets/js/exam.js': 'student'
 };
@@ -33,6 +33,7 @@ const PAGE_ROUTES = {
   '/supervisor': { role: 'supervisor', file: path.join(PAGES, 'supervisor.html') },
   '/pending': { role: 'support', file: path.join(PAGES, 'pending.html') },
   '/admin': { role: 'admin', file: path.join(PAGES, 'admin.html') },
+  '/admin/ai': { role: 'admin', file: path.join(PAGES, 'admin-ai.html') },
   '/exam': { role: 'student', file: path.join(PAGES, 'exam.html'), csp: EXAM_CSP },
   '/change-password': { role: null, file: path.join(PAGES, 'change-password.html') }
 };

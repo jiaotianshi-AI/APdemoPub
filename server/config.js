@@ -13,6 +13,13 @@ module.exports = {
   maxFilesPerRole: 10, // 每条测试的题目 / 答题 PDF 各最多 10 个
   maxPendingUploads: 40, // 每个督导者已上传但还没关联到测试的文件上限
   timezone: 'America/Vancouver',
+  // 密钥主文件：用来加密保存在数据库里的第三方 API 密钥。放在数据库同一目录，但不在每日备份的范围内（备份只含数据库和上传文件）
+  masterKeyPath: process.env.APDEMO_MASTER_KEY_FILE || path.join(path.dirname(process.env.APDEMO_DB || path.join(root, 'var', 'apdemo.db')), 'master.key'),
+  // AI 判分：只通过服务器调用，地址固定（只有测试时通过环境变量指向本地模拟服务）
+  aiApiBase: (process.env.AI_API_BASE || 'https://api.anthropic.com').replace(/\/+$/, ''),
+  aiTimeoutMs: Number(process.env.AI_TIMEOUT_MS || 180000),
+  aiTestMinIntervalMs: Number(process.env.AI_TEST_MIN_INTERVAL_MS || 2000), // 管理员连通性测试的最小间隔
+  aiMaxPerHour: Number(process.env.AI_MAX_PER_HOUR || 60), // 每个督导者每小时最多提交的 AI 评分次数
   cookieSecure: process.env.COOKIE_SECURE !== '0', // 正式环境为 HTTPS；仅本地测试时设为 0
   cookieName: 'apdemo_sid',
   sessionDays: 7,

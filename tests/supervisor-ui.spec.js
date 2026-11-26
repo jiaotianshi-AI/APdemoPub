@@ -189,7 +189,7 @@ test("每题的回答 PDF 与评分：每题可单独上传回答、评分；评
   await expect(page.locator("#grade-rows .grade-row")).toHaveCount(3);
   await expect(page.locator("#grade-overall")).toContainText("还不能计算（已评 0 / 3 题）");
   // Q1：上传回答 PDF + 评分 5；Q2：只评分 3；Q3 暂不评
-  await page.locator("#grade-rows .grade-row").nth(0).locator("input[type=file]").setInputFiles(file("回答Q1.pdf"));
+  await page.locator("#grade-rows .grade-row").nth(0).locator("input[type=file][aria-label*='回答 PDF']").setInputFiles(file("回答Q1.pdf"));
   await expect(page.locator("#grade-rows .grade-row").nth(0)).toContainText("回答Q1.pdf");
   await page.selectOption("#score-" + (await page.locator("#grade-rows .grade-row select").nth(0).getAttribute("id")).replace("score-", ""), "5");
   await page.locator("#grade-rows .grade-row select").nth(1).selectOption("3");
@@ -234,15 +234,15 @@ test("回答 PDF 的替换与移除；不是 PDF 的文件被拒绝", async ({ p
   const c = card(page, unit);
   await c.getByRole("button", { name: /^答题与评分：/ }).click();
   const row = page.locator("#grade-rows .grade-row").first();
-  await row.locator("input[type=file]").setInputFiles({ name: "x.txt", mimeType: "text/plain", buffer: Buffer.from("hi") });
+  await row.locator("input[type=file][aria-label*='回答 PDF']").setInputFiles({ name: "x.txt", mimeType: "text/plain", buffer: Buffer.from("hi") });
   await expect(row).toContainText("不是 PDF");
-  await row.locator("input[type=file]").setInputFiles(file("第一版.pdf"));
-  await expect(row.locator(".fname")).toContainText("第一版.pdf");
+  await row.locator("input[type=file][aria-label*='回答 PDF']").setInputFiles(file("第一版.pdf"));
+  await expect(row.locator(".fname").first()).toContainText("第一版.pdf");
   await page.click("#score-submit");
   await expect(c.locator(".q-row:not(.q-head)").first()).toContainText("第一版.pdf");
   await c.getByRole("button", { name: /^答题与评分：/ }).click();
-  await row.locator("input[type=file]").setInputFiles(file("第二版.pdf")); // 替换
-  await expect(row.locator(".fname")).toContainText("第二版.pdf");
+  await row.locator("input[type=file][aria-label*='回答 PDF']").setInputFiles(file("第二版.pdf")); // 替换
+  await expect(row.locator(".fname").first()).toContainText("第二版.pdf");
   await page.click("#score-submit");
   await expect(c.locator(".q-row:not(.q-head)").first()).toContainText("第二版.pdf");
   await expect(c).not.toContainText("第一版.pdf");
@@ -352,7 +352,7 @@ test("截图归档：督导者页面（供人工审阅外观）", async ({ page 
   await createVia(page, "Unit 2", { all: true, subject: "AP Biology", files: ["Unit2-题目A.pdf", "Unit2-题目B.pdf"] });
   const c = card(page, "Unit 2").first();
   await c.getByRole("button", { name: /^答题与评分：/ }).click();
-  await page.locator("#grade-rows .grade-row input[type=file]").first().setInputFiles(file("答题.pdf"));
+  await page.locator("#grade-rows .grade-row input[type=file][aria-label*='回答 PDF']").first().setInputFiles(file("答题.pdf"));
   await page.locator("#grade-rows .grade-row select").first().selectOption("4");
   await page.click("#score-submit");
   await expect(page.locator("#score-dialog")).toBeHidden();
@@ -388,7 +388,7 @@ test("新建测试可以设置测试时长（默认 60 分钟），并显示在�
   await expect(card(page, unit)).toContainText("45 分钟");
 });
 
-test("学生测试中/已提交：显示状态和作答信息；查看学生答题；AI 评分接口已预留（提示尚未开放）", async ({ page, playwright, baseURL }) => {
+test("学生测试中/已提交：显示状态和作答信息；查看学生答题", async ({ page, playwright, baseURL }) => {
   const { sup, students } = await setup(page, 1);
   const unit = "Unit " + uid("v");
   await createVia(page, unit, { files: ["题目A.pdf", "题目B.pdf"] });
@@ -425,17 +425,15 @@ test("学生测试中/已提交：显示状态和作答信息；查看学生答�
   await expect(c.locator(".q-row:not(.q-head)").first()).toContainText("学生写的第一题答案");
   await expect(c.locator(".q-row:not(.q-head)").nth(1)).toContainText("（没有填写）");
   await c.getByRole("button", { name: /^查看学生答题：/ }).click();
-  // AI 评分：接口已预留，现在提示尚未开放
-  await page.getByRole("button", { name: "请求 AI 评分：Q1" }).click();
-  await expect(page.locator("#view-ai-msg")).toContainText("AI 评分功能尚未开放");
-  await page.click("#view-ai-all");
-  await expect(page.locator("#view-ai-msg")).toContainText("AI 评分功能尚未开放");
+  // 查看答题窗口里不再有 AI 按钮（AI 评分在“答题与评分”里，见 tests/ai.spec.js），只有一句说明
+  await expect(page.locator("#view-dialog")).toContainText("答题与评分");
+  await expect(page.locator("#view-dialog").getByRole("button", { name: /AI/ })).toHaveCount(0);
   await page.keyboard.press("Escape");
   await expect(page.locator("#view-dialog")).toBeHidden();
 
   // 提交后可以上传扫描件并评分
   await c.getByRole("button", { name: /^答题与评分：/ }).click();
-  await page.locator("#grade-rows .grade-row").first().locator("input[type=file]").setInputFiles(file("扫描.pdf"));
+  await page.locator("#grade-rows .grade-row").first().locator("input[type=file][aria-label*='回答 PDF']").setInputFiles(file("扫描.pdf"));
   await expect(page.locator("#grade-rows .grade-row").first()).toContainText("扫描.pdf");
   await page.locator("#grade-rows .grade-row select").nth(0).selectOption("3");
   await page.locator("#grade-rows .grade-row select").nth(1).selectOption("3");
