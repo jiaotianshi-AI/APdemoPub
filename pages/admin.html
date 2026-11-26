@@ -1,3 +1,132 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>后台管理</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/assets/css/auth.css"></head>
-<body><main class="center-page"><div class="auth-card"><h1>后台管理</h1><p class="lead">建设中。</p><div class="actions"><button type="button" class="btn" id="logout-btn">退出登录</button></div></div></main><script src="/assets/js/page-common.js"></script></body></html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>后台管理 - 账号管理</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/assets/css/auth.css">
+  <link rel="stylesheet" href="/assets/css/admin.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">AP 专注学习 · 后台管理</div>
+      <div class="topbar-right">
+        <span class="who" id="whoami"></span>
+        <button type="button" class="btn" id="logout-btn">退出登录</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="admin">
+    <h1>账号管理</h1>
+
+    <div class="toolbar">
+      <div class="tabs" role="group" aria-label="按账号类型筛选">
+        <button type="button" class="tab" data-filter="" aria-pressed="true">全部</button>
+        <button type="button" class="tab" data-filter="student" aria-pressed="false">学生</button>
+        <button type="button" class="tab" data-filter="supervisor" aria-pressed="false">督导者</button>
+        <button type="button" class="tab" data-filter="support" aria-pressed="false">客服</button>
+      </div>
+      <div class="toolbar-right">
+        <div class="field search">
+          <label for="search" class="sr-only">搜索账号名</label>
+          <input id="search" type="search" placeholder="搜索账号名" autocomplete="off">
+        </div>
+        <button type="button" class="btn primary" id="new-btn">新建账号</button>
+      </div>
+    </div>
+
+    <p id="status" class="status" role="status"></p>
+
+    <div class="table-wrap">
+      <table id="accounts">
+        <caption class="sr-only">账号列表</caption>
+        <thead>
+          <tr><th scope="col">账号名</th><th scope="col">类型</th><th scope="col">状态</th><th scope="col">关联信息</th><th scope="col">操作</th></tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </main>
+
+  <!-- 新建账号 -->
+  <dialog id="create-dialog" aria-labelledby="create-title">
+    <form id="create-form" novalidate>
+      <h2 id="create-title">新建账号</h2>
+      <div class="field">
+        <label for="new-username">账号名</label>
+        <input id="new-username" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="32" required>
+        <span class="hint">2–32 个字符：字母、数字、下划线、点、短横线。建议用昵称，不要用真实姓名。</span>
+      </div>
+      <div class="field">
+        <label for="new-type">账号类型</label>
+        <select id="new-type" required>
+          <option value="">请选择…</option>
+          <option value="student">学生</option>
+          <option value="supervisor">督导者（家长/老师）</option>
+          <option value="support">客服</option>
+        </select>
+        <span class="hint">账号名和类型创建后不能修改。</span>
+      </div>
+      <p id="create-error" class="msg error" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn" data-close>取消</button>
+        <button type="submit" class="btn primary" id="create-submit">创建</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 编辑账号 -->
+  <dialog id="edit-dialog" aria-labelledby="edit-title">
+    <form id="edit-form" novalidate>
+      <h2 id="edit-title">编辑账号</h2>
+      <dl class="readonly">
+        <div><dt>账号名</dt><dd id="edit-username"></dd></div>
+        <div><dt>账号类型</dt><dd id="edit-type"></dd></div>
+      </dl>
+      <p class="hint">账号名和类型不能修改。</p>
+      <div id="edit-fields"></div>
+      <p id="edit-error" class="msg error" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn" data-close>取消</button>
+        <button type="submit" class="btn primary" id="edit-submit">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 初始密码（只显示一次） -->
+  <dialog id="secret-dialog" aria-labelledby="secret-title">
+    <div>
+      <h2 id="secret-title">初始密码</h2>
+      <dl class="readonly">
+        <div><dt>账号名</dt><dd id="secret-username"></dd></div>
+        <div><dt>初始密码</dt><dd><code id="secret-password"></code></dd></div>
+      </dl>
+      <p class="msg ok">这个密码只显示这一次，关闭后无法再查看。用户第一次登录时必须自己修改密码。如果丢失，请使用“重置密码”。</p>
+      <p id="copy-status" class="hint" role="status"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn" id="copy-btn">复制密码</button>
+        <button type="button" class="btn primary" data-close>我已记下，关闭</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- 确认 -->
+  <dialog id="confirm-dialog" aria-labelledby="confirm-title">
+    <div>
+      <h2 id="confirm-title">请确认</h2>
+      <p id="confirm-message"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn" data-close>取消</button>
+        <button type="button" class="btn danger" id="confirm-ok">确认</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script src="/assets/js/page-common.js"></script>
+  <script src="/assets/js/admin.js"></script>
+</body>
+</html>
