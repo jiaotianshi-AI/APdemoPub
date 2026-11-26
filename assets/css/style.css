@@ -133,6 +133,24 @@ a { color: var(--c-primary); }
 .yt-link { display: inline-flex; align-items: center; min-height: 44px; margin-top: 8px; font-weight: 600; }
 
 /* ---------- 响应式 ---------- */
+/* ---------- 进度和测试卡片：宽屏下更紧凑 ----------
+   “阶段测试时间”面板上移到右上角，与标题、副标题、进度并排（让 .module-body 和 .progress-layout 不产生自己的盒子，
+   它们的子元素直接成为卡片网格的格子）。窄屏（<900px）仍然是单列，不受影响。 */
+@media (min-width: 900px) {
+  .module-primary { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); column-gap: 32px; row-gap: 0; padding: 26px 32px 28px; align-content: start; }
+  .module-primary .module-body, .module-primary .progress-layout { display: contents; }
+  .module-primary .exam-banner { grid-column: 1 / -1; grid-row: 1; margin-bottom: 14px; }
+  .module-primary .module-title { grid-column: 1; grid-row: 2; font-size: 2.25rem; }
+  .module-primary .tagline { grid-column: 1; grid-row: 3; }
+  .module-primary .progress-main { grid-column: 1; grid-row: 4; margin-top: 18px; gap: 14px; }
+  .module-primary .assessment { grid-column: 2; grid-row: 2 / span 3; align-self: start; padding: 18px 22px; }
+  .module-primary .module-body > p:not(.exam-banner) { grid-column: 1 / -1; grid-row: 4; margin-top: 16px; }
+  .module-primary .percent-num { font-size: 4rem; }
+  .module-primary .bar { margin-top: 8px; height: 24px; border-radius: 12px; }
+  .module-primary .bar-fill { border-radius: 12px; }
+  .module-primary .assessment-time { font-size: 1.375rem; }
+}
+
 @media (max-width: 899px) {
   .container { padding: 0 16px 16px; }
   .topbar-inner { padding: 6px 16px; }
@@ -185,3 +203,10 @@ a { color: var(--c-primary); }
 .empty-note { padding: 18px; border: 1px dashed var(--c-border); border-radius: 12px; color: var(--c-muted); }
 .confirm-text { font-size: 1.0625rem; line-height: 1.6; }
 .confirm-actions { margin-top: 20px; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 12px; }
+
+/* 手机宽度：顶部栏放不下时，隐藏账号名，按钮文字不换行 */
+.login-btn, .lang-btn { white-space: nowrap; }
+@media (max-width: 520px) {
+  .user-name { display: none; }
+  .brand { white-space: nowrap; }
+}
