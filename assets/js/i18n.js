@@ -5,14 +5,14 @@
   var dict = {
     zh: {
       "meta.title": "AP 自学演示首页",
-      "meta.description": "AP 自学网站演示页：进度和测试、自学网站、自学视频与 AP 问答机器人入口（演示版）。",
+      "meta.description": "AP 自学演示页：进度和测试、自学视频、AP 问答机器人与关联网站入口（演示版）。",
       "a11y.langGroup": "语言切换",
       "login.btn": "登录",
       "login.title": "登录",
       "login.message": "演示版：登录与用户管理功能将在后续阶段开放。",
       "modal.close": "关闭",
       "hero.title": "AP 自学演示首页",
-      "hero.subtitle": "跟踪学习进度、参加定时测试，并快速找到学习网站、视频和问答入口。",
+      "hero.subtitle": "跟踪学习进度、参加定时测试，并快速找到学习视频、问答入口和关联网站。",
       "common.loading": "加载中…",
       "error.module": "该模块暂时无法加载，请稍后刷新页面重试。",
 
@@ -51,14 +51,14 @@
     },
     en: {
       "meta.title": "AP Self-Study Demo",
-      "meta.description": "AP self-study demo page: progress and tests, study sites, study videos and an AP Q&A bot entry (demo version).",
+      "meta.description": "AP self-study demo page: progress and tests, study videos, an AP Q&A bot, and related sites (demo version).",
       "a11y.langGroup": "Language",
       "login.btn": "Log in",
       "login.title": "Log in",
       "login.message": "Demo: sign-in and account management will be available in a later phase.",
       "modal.close": "Close",
       "hero.title": "AP Self-Study Demo",
-      "hero.subtitle": "Track your progress, take scheduled tests, and quickly find study sites, videos and Q&A.",
+      "hero.subtitle": "Track your progress, take scheduled tests, and quickly find study videos, Q&A and related sites.",
       "common.loading": "Loading…",
       "error.module": "This section could not be loaded right now. Please refresh the page and try again.",
 
