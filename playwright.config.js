@@ -4,15 +4,14 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-// 从"上一级目录"起服务：临时目录里放一个指向本仓库的 APdemo 链接，通过 /APdemo/ 子路径访问
-const root = path.join(os.tmpdir(), "apdemo-serve");
-fs.mkdirSync(root, { recursive: true });
-const link = path.join(root, "APdemo");
-try { fs.rmSync(link, { force: true }); } catch (e) { /* ignore */ }
-fs.symlinkSync(__dirname, link, "dir");
-
 const PORT = 8765;
+// 每次运行用全新的临时数据库（只用于测试，不含真实数据）
+const DB = path.join(os.tmpdir(), "apdemo-e2e", "e2e.db");
+process.env.APDEMO_DB = DB;
+process.env.E2E_PORT = String(PORT);
+
 const chromiumPath = process.env.CHROMIUM_PATH || (fs.existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
+const authDir = path.join(__dirname, "tests", ".auth");
 
 module.exports = defineConfig({
   testDir: "tests",
@@ -20,8 +19,10 @@ module.exports = defineConfig({
   fullyParallel: true,
   workers: 4,
   reporter: [["list"]],
+  globalSetup: require.resolve("./tests/global-setup.js"),
   use: {
-    baseURL: `http://localhost:${PORT}/APdemo/`,
+    baseURL: `http://localhost:${PORT}/`,
+    storageState: path.join(authDir, "student.json"), // 默认以测试学生身份登录；其他身份在用例里覆盖
     trace: "off"
   },
   projects: [
@@ -32,13 +33,14 @@ module.exports = defineConfig({
         launchOptions: chromiumPath ? { executablePath: chromiumPath, args: ["--no-sandbox"] } : { args: ["--no-sandbox"] }
       }
     },
-    // WebKit 用来近似 iPad Safari（不等于真机）。仅在已安装 WebKit 时才有意义：npx playwright install webkit
+    // WebKit 用来近似 iPad Safari（不等于真机）。需要先安装：npx playwright install webkit
     { name: "webkit", use: { ...devices["Desktop Safari"] } }
   ],
   webServer: {
-    command: `python3 -m http.server ${PORT} --bind 127.0.0.1 --directory "${root}"`,
-    url: `http://localhost:${PORT}/APdemo/index.html`,
-    reuseExistingServer: true,
-    timeout: 20000
+    command: `sh -c 'mkdir -p "${path.dirname(DB)}" && rm -f "${DB}" "${DB}-wal" "${DB}-shm" && exec node --disable-warning=ExperimentalWarning server/index.js'`,
+    url: `http://localhost:${PORT}/login`,
+    reuseExistingServer: false,
+    timeout: 20000,
+    env: { ...process.env, PORT: String(PORT), HOST: "127.0.0.1", APDEMO_DB: DB, COOKIE_SECURE: "0" }
   }
 });

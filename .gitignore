@@ -7,3 +7,7 @@ playwright-report/
 
 # 内部需求说明，仅保留在本地，不提交
 APdemo_TASK.md
+
+# 测试登录状态与运行数据（不提交）
+tests/.auth/
+var/

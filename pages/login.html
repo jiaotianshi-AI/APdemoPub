@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>登录</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/assets/css/auth.css">
+</head>
+<body>
+  <main class="center-page">
+    <div class="auth-card">
+      <p class="brand">AP 专注学习</p>
+      <h1>登录</h1>
+      <form id="login-form" novalidate>
+        <div class="field">
+          <label for="username">账号名</label>
+          <input id="username" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+        </div>
+        <div class="field">
+          <label for="password">密码</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+        </div>
+        <p id="error" class="msg error" role="alert" hidden></p>
+        <div class="actions"><button type="submit" class="btn primary" id="submit">登录</button></div>
+      </form>
+    </div>
+  </main>
+  <script src="/assets/js/login.js"></script>
+</body>
+</html>
