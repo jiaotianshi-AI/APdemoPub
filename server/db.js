@@ -37,6 +37,42 @@ CREATE TABLE IF NOT EXISTS support_supervisors (
   supervisor_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
   PRIMARY KEY (support_id, supervisor_id)
 );
+CREATE TABLE IF NOT EXISTS files (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  stored_name TEXT NOT NULL UNIQUE,
+  original_name TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  uploaded_by INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS assessments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  student_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  created_by INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+  subject TEXT NOT NULL,
+  unit TEXT NOT NULL,
+  unit_start_date TEXT NOT NULL,
+  unit_start_at TEXT NOT NULL,
+  scheduled_wall TEXT NOT NULL,
+  scheduled_at TEXT NOT NULL,
+  timezone TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('scheduled','graded')),
+  score INTEGER CHECK (score BETWEEN 1 AND 5),
+  graded_at TEXT,
+  graded_by TEXT,
+  attempt_no INTEGER NOT NULL DEFAULT 1,
+  retake_of INTEGER REFERENCES assessments(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_assessments_student ON assessments (student_id, scheduled_at);
+CREATE TABLE IF NOT EXISTS assessment_files (
+  assessment_id INTEGER NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
+  file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  role TEXT NOT NULL CHECK (role IN ('question','answer')),
+  position INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (assessment_id, file_id, role)
+);
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ts TEXT NOT NULL,

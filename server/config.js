@@ -8,6 +8,11 @@ module.exports = {
   port: Number(process.env.PORT || 3000),
   host: process.env.HOST || '127.0.0.1', // 只监听本机，由 Caddy 反向代理对外
   dbPath: process.env.APDEMO_DB || path.join(root, 'var', 'apdemo.db'),
+  uploadDir: process.env.APDEMO_UPLOADS || path.join(root, 'var', 'uploads'),
+  maxUploadBytes: Number(process.env.MAX_UPLOAD_BYTES || 20 * 1024 * 1024), // 单个 PDF 上限 20MB
+  maxFilesPerRole: 10, // 每条测试的题目 / 答题 PDF 各最多 10 个
+  maxPendingUploads: 40, // 每个督导者已上传但还没关联到测试的文件上限
+  timezone: 'America/Vancouver',
   cookieSecure: process.env.COOKIE_SECURE !== '0', // 正式环境为 HTTPS；仅本地测试时设为 0
   cookieName: 'apdemo_sid',
   sessionDays: 7,

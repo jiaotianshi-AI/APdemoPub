@@ -5,6 +5,8 @@ const config = require('./config');
 const auth = require('./auth');
 const authRoutes = require('./routes-auth');
 const adminApi = require('./routes-admin');
+const supervisorApi = require('./routes-supervisor');
+const files = require('./files');
 const { httpError, sendJson, sendText, redirect, sendFile } = require('./http');
 
 const PAGES = path.join(config.root, 'pages');
@@ -14,8 +16,11 @@ const PAGE_CSP = "default-src 'self'; img-src 'self' data:; script-src 'self'; s
 const PUBLIC_FILES = new Set(['/assets/css/auth.css', '/assets/js/login.js']);
 // 修改初始密码前允许访问的文件
 const CHANGE_PW_FILES = new Set(['/assets/css/auth.css', '/assets/js/change-password.js']);
-// 仅管理员可取的文件
-const ADMIN_FILES = new Set(['/assets/css/admin.css', '/assets/js/admin.js']);
+// 仅特定角色可取的文件
+const ROLE_FILES = {
+  '/assets/css/admin.css': 'admin', '/assets/js/admin.js': 'admin',
+  '/assets/css/supervisor.css': 'supervisor', '/assets/js/supervisor.js': 'supervisor'
+};
 
 const PAGE_ROUTES = {
   '/': { role: 'student', file: path.join(config.root, 'index.html'), ownCsp: true }, // 学生页自带 meta CSP（需允许 YouTube）
@@ -67,6 +72,10 @@ async function handleApi(req, res, pathname) {
     if (ctx.account.type !== 'admin') throw httpError(403, 'FORBIDDEN', '没有权限。');
     return adminApi(req, res, pathname, ctx);
   }
+  if (pathname.startsWith('/api/supervisor/')) {
+    if (ctx.account.type !== 'supervisor') throw httpError(403, 'FORBIDDEN', '没有权限。');
+    return supervisorApi(req, res, pathname, ctx);
+  }
   throw httpError(404, 'NOT_FOUND', '接口不存在。');
 }
 
@@ -108,7 +117,7 @@ function handlePage(req, res, pathname) {
   }
 
   if (pathname.startsWith('/assets/') || pathname.startsWith('/data/')) {
-    if (ADMIN_FILES.has(pathname) && account.type !== 'admin') return sendText(res, 403, 'Forbidden');
+    if (ROLE_FILES[pathname] && ROLE_FILES[pathname] !== account.type) return sendText(res, 403, 'Forbidden');
     const file = safeJoin(config.root, pathname.slice(1));
     return file ? sendFile(req, res, file) : sendText(res, 404, 'Not found');
   }
@@ -137,7 +146,8 @@ async function handle(req, res) {
 }
 
 auth.purgeExpiredSessions();
-setInterval(auth.purgeExpiredSessions, 3600 * 1000).unref();
+files.gcFiles(24 * 60);
+setInterval(() => { auth.purgeExpiredSessions(); files.gcFiles(24 * 60); }, 3600 * 1000).unref();
 
 http.createServer(handle).listen(config.port, config.host, () => {
   console.log(`APdemo server listening on http://${config.host}:${config.port}`);

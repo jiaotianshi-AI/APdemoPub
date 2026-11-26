@@ -3,6 +3,7 @@
 const { db, transaction, audit } = require('./db');
 const auth = require('./auth');
 const { httpError, readJson, sendJson } = require('./http');
+const files = require('./files');
 
 const MANAGED_TYPES = ['student', 'supervisor', 'support'];
 const EDITABLE = { student: ['subject'], supervisor: ['studentIds'], support: ['supervisorIds'] };
@@ -160,7 +161,8 @@ function setDisabled(res, ctx, idText, disabled) {
 function deleteAccount(res, ctx, idText) {
   const target = getManaged(idText);
   if (!target.disabled) throw httpError(409, 'MUST_DISABLE_FIRST', '请先停用这个账号，再彻底删除。');
-  db.prepare('DELETE FROM accounts WHERE id = ?').run(target.id); // 会话、关联关系随之级联删除
+  db.prepare('DELETE FROM accounts WHERE id = ?').run(target.id); // 会话、关联关系、测试记录随之级联删除
+  files.gcFiles(10); // 顺带清掉不再被任何测试使用的 PDF（刚上传 10 分钟内的先保留）
   audit(ctx.account.username, 'delete_account', target.username, target.type);
   sendJson(res, 200, { ok: true });
 }
