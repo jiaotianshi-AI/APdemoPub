@@ -78,7 +78,7 @@
 
   function statusText(iso) {
     var diff = new Date(iso).getTime() - Date.now();
-    if (!(diff > 0)) return { ended: true, text: t("progress.ended") };
+    if (!(diff > 0)) return { ended: true, text: t("progress.ready") };
     var mins = Math.floor(diff / 60000);
     var days = Math.floor(mins / 1440);
     var hours = Math.floor((mins % 1440) / 60);
@@ -92,6 +92,9 @@
     safeRender("progress-body", function (host, d) {
       var prog = d.progress;
       var asm = d.assessment;
+      var running0 = !!(asm && asm.status === "in_progress");
+      document.body.classList.toggle("exam-active", running0);
+      if (running0) { var banner = el("p", "exam-banner", t("exam.banner")); banner.setAttribute("role", "status"); host.appendChild(banner); }
       var wrap = el("div", "progress-layout");
 
       var left = el("div", "progress-main");
@@ -129,11 +132,31 @@
       right.appendChild(el("div", "kv-label", t("progress.assessmentTime")));
       if (asm) {
         right.appendChild(el("div", "assessment-time", formatDate(asm.scheduledAt, asm.timezone, i18n.getLang())));
+        var running = asm.status === "in_progress";
         var st = statusText(asm.scheduledAt);
-        right.appendChild(el("div", "status-badge " + (st.ended ? "is-ended" : "is-upcoming"), st.text));
+        right.appendChild(el("div", "status-badge " + (running || st.ended ? "is-ready" : "is-upcoming"), running ? t("progress.inProgress") : st.text));
       } else {
         right.appendChild(el("div", "assessment-time", t("progress.noAssessment")));
       }
+      var acts = el("div", "assessment-actions");
+      if (asm && asm.status === "in_progress") {
+        var cont = el("a", "card-btn primary", t("tests.resume"));
+        cont.href = "/exam?id=" + asm.id;
+        acts.appendChild(cont);
+      } else if (asm && asm.status === "scheduled") {
+        var early = Date.now() < Date.parse(asm.scheduledAt);
+        var go = el("button", "card-btn primary", t(early ? "tests.startNow" : "tests.start"));
+        go.type = "button";
+        go.id = "start-btn";
+        go.addEventListener("click", function () { startFlow(asm); });
+        acts.appendChild(go);
+      }
+      var all = el("button", "card-btn", t("tests.open"));
+      all.type = "button";
+      all.id = "all-tests-btn";
+      all.addEventListener("click", openTests);
+      acts.appendChild(all);
+      right.appendChild(acts);
       wrap.appendChild(right);
       host.appendChild(wrap);
     });
@@ -159,7 +182,7 @@
   }
 
   /* ---------- 模态窗口（登录提示、视频） ---------- */
-  var modal = { open: false, kind: null, restore: null, trigger: null, rebuild: null };
+  var modal = { open: false, kind: null, restore: null, trigger: null, rebuild: null, build: null };
 
   function pageRoot() { return document.getElementById("page"); }
   function modalEls() {
@@ -182,9 +205,12 @@
     modal.restore = opts.restore;
     modal.trigger = document.activeElement;
     modal.rebuild = opts.rebuild;
-    m.title.textContent = opts.title;
+    modal.build = opts.build || null;
+    var built = opts.build ? opts.build() : { title: opts.title, content: opts.content };
+    m.dialog.classList.toggle("modal-wide", !!opts.wide);
+    m.title.textContent = built.title;
     clear(m.content);
-    m.content.appendChild(opts.content);
+    m.content.appendChild(built.content);
     m.root.hidden = false;
     pageRoot().inert = true;
     pageRoot().setAttribute("aria-hidden", "true");
@@ -209,6 +235,17 @@
     if (target && typeof target.focus === "function") target.focus();
     modal.kind = null;
     modal.rebuild = null;
+    modal.build = null;
+  }
+
+  // 弹窗内容依赖数据或语言时，用它重新生成
+  function rebuildModal() {
+    if (!modal.open || !modal.build) return;
+    var m = modalEls();
+    var built = modal.build();
+    m.title.textContent = built.title;
+    clear(m.content);
+    m.content.appendChild(built.content);
   }
 
   document.addEventListener("keydown", function (e) {
@@ -356,6 +393,116 @@
     host.appendChild(layout);
   }
 
+  /* ---------- 所有测试、立即测试 ---------- */
+  var testsState = { status: "loading", data: null, loadedAt: 0 };
+
+  function leftText(ms) {
+    var mins = Math.max(1, Math.floor(ms / 60000)), d = Math.floor(mins / 1440), h = Math.floor((mins % 1440) / 60), m = mins % 60;
+    if (d >= 1) return t("tests.left.dh", { d: d, h: h });
+    if (h >= 1) return t("tests.left.hm", { h: h, m: m });
+    return t("tests.left.m", { m: m });
+  }
+
+  function testsContent() {
+    var wrap = el("div", "tests");
+    if (testsState.status === "loading") { wrap.appendChild(el("p", "muted", t("common.loading"))); return wrap; }
+    if (testsState.status === "error") { wrap.appendChild(errorTextNode("tests.loadError")); return wrap; }
+    var list = testsState.data.assessments;
+    var offsetMs = Date.parse(testsState.data.serverNow) - testsState.loadedAt;
+    var hasActive = list.some(function (a) { return a.status === "in_progress"; });
+    if (!list.length) { wrap.appendChild(el("p", "empty-note", t("tests.empty"))); return wrap; }
+
+    function byTime(dir) { return function (x, y) { return dir * (Date.parse(x.scheduledAt) - Date.parse(y.scheduledAt)); }; }
+    var groups = [
+      ["tests.group.upcoming", list.filter(function (a) { return a.status === "scheduled"; }).sort(byTime(1))],
+      ["tests.group.active", list.filter(function (a) { return a.status === "in_progress" || a.status === "submitted"; }).sort(byTime(-1))],
+      ["tests.group.past", list.filter(function (a) { return a.status === "graded"; }).sort(byTime(-1))]
+    ];
+    groups.forEach(function (g) {
+      if (!g[1].length) return;
+      var sec = el("section", "t-group");
+      sec.appendChild(el("h3", "t-group-title", t(g[0]) + (i18n.getLang() === "zh" ? "（" + g[1].length + "）" : " (" + g[1].length + ")")));
+      g[1].forEach(function (a) { sec.appendChild(testCard(a, hasActive, offsetMs)); });
+      wrap.appendChild(sec);
+    });
+    return wrap;
+  }
+
+  function errorTextNode(key) { var p = el("p", "module-error", t(key)); p.setAttribute("role", "status"); return p; }
+
+  function testCard(a, hasActive, offsetMs) {
+    var c = el("article", "t-card");
+    var head = el("div", "t-head");
+    head.appendChild(el("h4", "t-title", a.subject + " · " + a.unit));
+    head.appendChild(el("span", "t-badge " + a.status, t("status." + a.status)));
+    if (a.attemptNo > 1) head.appendChild(el("span", "t-badge tag", t("tests.attempt", { n: a.attemptNo })));
+    c.appendChild(head);
+    var meta = el("dl", "t-meta");
+    function item(label, value) { var d = el("div"); d.appendChild(el("dt", "", label)); d.appendChild(el("dd", "", value)); meta.appendChild(d); }
+    item(t("tests.time"), formatDate(a.scheduledAt, a.timezone, i18n.getLang()));
+    item(t("tests.duration"), t("tests.durationValue", { m: a.durationMinutes }));
+    if (a.status === "graded") item(t("tests.score"), t("tests.scoreValue", { s: a.score }));
+    c.appendChild(meta);
+    var act = el("div", "t-actions");
+    if (a.status === "scheduled") {
+      act.appendChild(el("span", "muted t-note", t("tests.questionsHidden")));
+      var early = Date.now() + offsetMs < Date.parse(a.scheduledAt);
+      var b = el("button", "card-btn primary", t(early ? "tests.startNow" : "tests.start"));
+      b.type = "button";
+      b.disabled = hasActive;
+      b.setAttribute("aria-label", t(early ? "tests.startNow" : "tests.start") + "：" + a.subject + " · " + a.unit);
+      b.addEventListener("click", function () { startFlow(a); });
+      act.appendChild(b);
+    } else if (a.status === "in_progress") {
+      var r = el("a", "card-btn primary", t("tests.resume"));
+      r.href = "/exam?id=" + a.id;
+      act.appendChild(r);
+    } else {
+      var v = el("a", "card-btn", t("tests.review"));
+      v.href = "/exam?id=" + a.id;
+      v.setAttribute("aria-label", t("tests.review") + "：" + a.subject + " · " + a.unit);
+      act.appendChild(v);
+    }
+    c.appendChild(act);
+    return c;
+  }
+
+  function openTests() {
+    testsState = { status: "loading", data: null, loadedAt: 0 };
+    openModal({ kind: "tests", wide: true, restore: "#all-tests-btn", build: function () { return { title: t("tests.title"), content: testsContent() }; } });
+    api.getAssessments().then(function (data) {
+      testsState = { status: "ok", data: data, loadedAt: Date.now() };
+      rebuildModal();
+    }, function () { testsState = { status: "error", data: null, loadedAt: 0 }; rebuildModal(); });
+  }
+
+  // 点击“立即测试 / 开始测试”：先确认，确认后进入测试页（那里再选作答方式、开始计时）
+  function startFlow(a) {
+    if (modal.open) closeModal();
+    var early = Date.now() < Date.parse(a.scheduledAt);
+    openModal({
+      kind: "confirm-start", restore: "#start-btn",
+      build: function () {
+        var wrap = el("div", "confirm-start");
+        wrap.appendChild(el("p", "confirm-text", early
+          ? t("tests.confirmEarly", { left: leftText(Date.parse(a.scheduledAt) - Date.now()), m: a.durationMinutes })
+          : t("tests.confirmReady", { m: a.durationMinutes })));
+        var row = el("div", "confirm-actions");
+        var no = el("button", "card-btn", t("common.cancel"));
+        no.type = "button";
+        no.addEventListener("click", closeModal);
+        var yes = el("button", "card-btn primary", t("common.confirm"));
+        yes.type = "button";
+        yes.id = "confirm-start-yes";
+        yes.addEventListener("click", function () { window.location.href = "/exam?id=" + a.id + (early ? "&early=1" : ""); });
+        row.appendChild(no);
+        row.appendChild(yes);
+        wrap.appendChild(row);
+        return { title: t(early ? "tests.startNow" : "tests.start"), content: wrap };
+      }
+    });
+  }
+
   /* ---------- 其他 ---------- */
   function renderBrand() {
     var node = body("brand");
@@ -408,6 +555,7 @@
     document.addEventListener("ap:langchange", function () {
       renderAll();
       if (modal.open && modal.rebuild) modal.rebuild();
+      rebuildModal();
     });
     renderAll();
 

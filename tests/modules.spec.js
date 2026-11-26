@@ -118,7 +118,7 @@ test("T8 进度块：进度 = 本单元开始日到测试时间已走过的比�
     return [b.getBoundingClientRect().width, b.firstElementChild.getBoundingClientRect().width];
   });
   expect(Math.abs(fw / bw - 0.1)).toBeLessThanOrEqual(0.005);
-  expect(await page.locator("#mod-progress button, #mod-progress input, #mod-progress a").count()).toBe(0);
+  expect(await page.locator("#mod-progress input, #mod-progress textarea, #mod-progress select").count()).toBe(0); // 卡片里有按钮（所有测试、立即测试），但没有任何输入框
   await expect(page.locator("#progress-body")).toContainText("AP Biology · Unit 2");
   await page.click('.lang-btn[data-lang="en"]');
   await expect(page.locator("#progress-body")).toContainText("AP Biology · Unit 2");
@@ -136,7 +136,7 @@ test("T8 进度的边界：开始前为 0%，测试时间之后为 100%", async 
   await expect(p2.locator("[role=progressbar]")).toHaveAttribute("aria-valuenow", "100");
 });
 
-test("T9 测试时间与倒计时/已结束", async ({ page }) => {
+test("T9 测试时间与倒计时/到点后显示“可以开始测试”", async ({ page }) => {
   await page.clock.install({ time: new Date("2030-06-14T07:30:00-07:00") });
   await ready(page, "zh");
   await expect(page.locator("#progress-body")).toContainText("2030年6月15日 3:00 PM（温哥华时间）");
@@ -149,10 +149,10 @@ test("T9 测试时间与倒计时/已结束", async ({ page }) => {
   await page2.clock.install({ time: new Date("2030-06-16T08:00:00-07:00") });
   await page2.goto("index.html?lang=zh");
   await page2.waitForSelector(".status-badge");
-  await expect(page2.locator(".status-badge")).toHaveText("已结束");
+  await expect(page2.locator(".status-badge")).toHaveText("可以开始测试");
   await page2.goto("index.html?lang=en");
   await page2.waitForSelector(".status-badge");
-  await expect(page2.locator(".status-badge")).toHaveText("Ended");
+  await expect(page2.locator(".status-badge")).toHaveText("Ready to start");
 });
 
 test("T10 机器人模块", async ({ page }) => {

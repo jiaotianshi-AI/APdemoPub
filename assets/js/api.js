@@ -82,10 +82,21 @@
     getProgress: function (/* studentId：学生只能看自己的 */) {
       return overview().then(function (o) {
         var n = o.next;
-        return { subject: n ? n.subject : (o.subject || null), unit: n ? n.unit : null, percent: n ? percentOf(n) : null, hasAssessment: !!n };
+        return { subject: n ? n.subject : (o.subject || null), unit: n ? n.unit : null, percent: n ? percentOf(n) : null, hasAssessment: !!n, status: n ? n.status : null };
       });
     },
     getNextAssessment: function (/* studentId */) { return overview().then(function (o) { return o.next || null; }); },
+    // 学生自己的全部测试（未完成的测试不含题目信息）
+    getAssessments: function () {
+      if (isRemote()) return notImplemented("getAssessments")();
+      return fetch(new URL("api/student/assessments", document.baseURI).href, { cache: "no-store", credentials: "same-origin" })
+        .then(function (res) {
+          if (res.status === 401) { window.location.href = "/login"; return fail("UNAUTHENTICATED", "Please sign in."); }
+          if (!res.ok) return fail("HTTP_" + res.status, "Failed to load assessments");
+          return res.json().catch(function () { return fail("BAD_DATA", "Invalid JSON"); });
+        }, function () { return fail("NETWORK", "Network error"); })
+        .then(function (data) { return { serverNow: data.serverNow, assessments: data.assessments }; });
+    },
     getQaDemo: function () { return listItems("qa.sample.json", "getQaDemo"); },
     getCurrentUser: function () {
       if (isRemote()) return Promise.resolve(null);

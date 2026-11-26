@@ -1,1 +1,39 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>exam</title></head><body></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <title data-i18n="exam.title">测试</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <link rel="stylesheet" href="/assets/css/exam.css">
+</head>
+<body class="exam-page">
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand" id="brand"></div>
+      <div class="topbar-right">
+        <div class="timer" id="timer" hidden role="timer" aria-live="off">
+          <span class="timer-label" data-i18n="exam.timeLeft">剩余时间</span>
+          <span class="timer-value" id="timer-value">--:--</span>
+        </div>
+        <div class="lang" role="group" data-i18n-aria-label="a11y.langGroup">
+          <button type="button" class="lang-btn" data-lang="zh" lang="zh-CN">中文</button>
+          <span class="lang-sep" aria-hidden="true">|</span>
+          <button type="button" class="lang-btn" data-lang="en" lang="en">EN</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="exam" id="exam-root" aria-live="polite">
+    <p class="muted" data-i18n="exam.loading">正在加载测试…</p>
+  </main>
+
+  <script src="/assets/js/config.js"></script>
+  <script src="/assets/js/i18n.js"></script>
+  <script src="/assets/js/exam.js"></script>
+</body>
+</html>
