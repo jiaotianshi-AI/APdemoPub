@@ -1,32 +1,48 @@
-# APdemo —— AP 自学网站演示首页（第一阶段）
+# APdemo —— AP 自学网站（演示版）
 
-纯静态（HTML/CSS/JS）、中英双语。进度和测试为核心主模块，自学视频 / AP 问答机器人为辅助模块，页面底部为“关联网站”链接，另有一个演示用登录入口。
-**演示版：没有后台、没有真实登录、没有真实机器人。** 最终报告见 `REPORT.md`。
+中英双语的 AP 自学网站。进度和测试为核心主模块，自学视频 / AP 问答机器人为辅助模块，页面底部为“关联网站”链接。
+**现在需要登录才能访问任何页面**，有三类页面：
+
+| 地址 | 谁用 | 说明 |
+|---|---|---|
+| `/` | 学生 | 学生页（目前仍是原来的演示首页，待修改） |
+| `/supervisor` | 督导者（家长/老师） | 占位页，待设计 |
+| `/admin` | 管理员 | 账号管理：新建、编辑关联、停用/启用、重置密码、删除 |
+
+账号类型：学生、督导者、客服、管理员。客服登录后暂时只看到“暂未开放”。最终报告见 `REPORT.md`。
 
 ## 目录
 ```
-index.html
-assets/css/style.css
-assets/js/config.js   品牌名、dataSource、apiBase
-assets/js/i18n.js     中英词典
-assets/js/api.js      数据访问层（页面唯一取数入口）
-assets/js/app.js      页面逻辑
-assets/img/chatbot.svg
-data/                 内容数据 + schema/
+index.html            学生页
+pages/                登录、修改密码、管理员、督导者、客服占位页
+assets/css, js, img   前端资源（auth.css / admin.css / admin.js 等为账号相关页面）
+data/                 内容数据 + schema/（学生页使用，登录后才能读取）
+server/               Node.js 后台（登录、会话、账号管理接口、命令行工具）
+deploy/               Caddy 配置、systemd 服务、安装/更新/备份脚本
 docs/                 DATA_MODEL.md、API.md
 tests/                Playwright 测试与截图
 ```
+后台只用 Node.js 自带功能（`node:sqlite`、`crypto`、`http`），**没有运行时 npm 依赖**；需要 Node.js 22.13 或更高。
 
-## 本地预览
-页面用 `fetch` 读取 `data/*.json`，浏览器不允许 `file://` 下的 fetch，因此**不能双击打开 index.html**，必须起本地服务器，并且最好从上一级目录起，以验证 `/APdemo/` 子路径：
+## 本地运行
 ```bash
-cd ..            # 进入包含 APdemo/ 文件夹的目录
-python3 -m http.server 8000
-# 浏览器访问 http://localhost:8000/APdemo/
+export COOKIE_SECURE=0                 # 本地是 http，不是 https，需要关掉 cookie 的 Secure 属性（仅本地）
+node --disable-warning=ExperimentalWarning server/cli.js create-admin 你的管理员账号名   # 会打印一次性初始密码
+npm start                              # 然后访问 http://localhost:3000/
 ```
-URL 参数 `?lang=zh` / `?lang=en` 可指定语言。
+数据库默认在 `var/apdemo.db`（已加入 `.gitignore`，不会被提交）。用 `APDEMO_DB=路径` 指定别处。
+首次用管理员登录会要求先修改初始密码，然后进入 `/admin`。
 
-## 修改内容
+## 账号规则
+- 新建账号只需**账号名**和**账号类型**（学生 / 督导者 / 客服），这两项创建后**不能修改**。
+- 学生：可设置学习科目（如 AP Biology，可为空）。
+- 督导者：可关联多个学生。
+- 客服：可关联多个督导者。
+- 初始密码由系统生成，只显示一次，用户第一次登录必须自己改密码；管理员也看不到之后的密码。
+- 删除账号需要先“停用”，停用的账号可恢复；彻底删除会一并清除它的关联关系。
+- 管理员账号只能在服务器上用命令行创建（`deploy/create-admin.sh`），网页上不能创建。
+
+## 修改学生页内容
 - **`assets/js/config.js`**：`brandName`（品牌名，占位名）、`dataSource`（`"static"` 为本阶段唯一实现；`"remote"` 仅预留，调用会报 `NOT_IMPLEMENTED`，不发请求）、`apiBase`（预留）。
 - **`data/sites.json`**：站点列表（`url`、`name`、`description`、`order`、`enabled`）。`logo` 字段保留但页面目前不显示（关联网站只显示网站名），`description` 同样暂不显示。
 - **`data/videos.json`**：视频 ID 与标题；三个视频已填入原标题（英文原题，中文界面也显示原题，未翻译）；`title` 为 null 时显示“AP 视频 N”占位，填 `{ "zh": "...", "en": "..." }` 即可显示标题。
@@ -36,7 +52,7 @@ URL 参数 `?lang=zh` / `?lang=en` 可指定语言。
 - 修改数据后可运行测试，校验是否仍符合 `data/schema/`。
 
 ## 部署
-把 `APdemo/` 整个文件夹上传到 locprof.com 网站根目录下，使 `index.html` 位于 `/APdemo/index.html`（目标地址 https://www.locprof.com/APdemo/）。`/APdemo` 与 `/APdemo/` 的跳转取决于服务器，如不自动跳转请联系主机商。所有资源均为相对路径。上传时无需 `tests/`、`node_modules/`、`package.json`、`playwright.config.js`。
+见 `deploy/DEPLOY.md`（腾讯云轻量服务器 + Caddy + Node.js + systemd）。
 
 ## 运行测试
 需要 Node.js。测试依赖只在开发时用，运行时无依赖。
@@ -46,7 +62,7 @@ npx playwright install webkit      # 首次需要；Linux 上缺系统库时再�
 npx playwright test                # Chromium + WebKit 两个项目
 npx playwright test --project=chromium   # 只跑 Chromium
 ```
-测试会自动起本地服务器（通过 `/APdemo/` 子路径）。WebKit 项目用来近似 iPad Safari，**不等于真机**。截图输出到 `tests/screenshots/`（Chromium）和 `tests/screenshots/webkit/`，供人工审阅外观。
+测试会自动用一个临时数据库启动后台，并用测试账号登录（不涉及任何真实数据）。WebKit 项目用来近似 iPad Safari，**不等于真机**。截图输出到 `tests/screenshots/`（Chromium）和 `tests/screenshots/webkit/`，供人工审阅外观。
 
 ## 人工验收清单（需求方在真机上做）
 1. 真实 iPad（横屏）Safari：版面、点击大小、底部三个关联网站链接（新标签页打开）、视频模态窗口

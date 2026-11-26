@@ -1,0 +1,23 @@
+[Unit]
+Description=APdemo web app
+After=network.target
+
+[Service]
+User=apdemo
+Group=apdemo
+WorkingDirectory=/opt/apdemo
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=3000
+Environment=APDEMO_DB=/var/lib/apdemo/apdemo.db
+ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning server/index.js
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/apdemo
+
+[Install]
+WantedBy=multi-user.target

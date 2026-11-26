@@ -1,23 +1,11 @@
-# APdemo 站点配置（Caddy 2）。放到 /etc/caddy/Caddyfile
+# APdemo 站点配置（Caddy 2）。安装到 /etc/caddy/Caddyfile
 # 域名需先在 DNS 中指向本服务器 IP（A 记录），Caddy 会自动申请并续期 HTTPS 证书。
+# 所有请求都转给本机的 Node 应用（127.0.0.1:3000）；登录检查、页面权限由应用负责。
 apdemo.locprof.com {
-	root * /var/www/apdemo
 	encode zstd gzip
-
-	# 不对外提供隐藏文件，也不提供不属于网站的开发文件（以防误传）
-	@blocked path /.* /tests/* /node_modules/* /package.json /package-lock.json /playwright.config.js /deploy/* /REPORT.md /APdemo_TASK.md
-	respond @blocked 404
-
+	reverse_proxy 127.0.0.1:3000
 	header {
-		X-Content-Type-Options nosniff
-		Referrer-Policy strict-origin-when-cross-origin
-		X-Robots-Tag "noindex"
+		Strict-Transport-Security "max-age=31536000"
 		-Server
 	}
-
-	# 数据文件不缓存，改了 data/*.json 后刷新即生效
-	@data path /data/*
-	header @data Cache-Control "no-cache"
-
-	file_server
 }

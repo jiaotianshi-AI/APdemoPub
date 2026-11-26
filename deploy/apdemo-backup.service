@@ -1,0 +1,6 @@
+[Unit]
+Description=APdemo database backup
+
+[Service]
+Type=oneshot
+ExecStart=/opt/apdemo/deploy/backup.sh
