@@ -416,13 +416,56 @@
       ["tests.group.active", list.filter(function (a) { return a.status === "in_progress" || a.status === "submitted"; }).sort(byTime(-1))],
       ["tests.group.past", list.filter(function (a) { return a.status === "graded"; }).sort(byTime(-1))]
     ];
-    groups.forEach(function (g) {
+    groups.forEach(function (g, gi) {
       if (!g[1].length) return;
+      var isPast = gi === 2; // 已评分的过往测试默认折叠，只显示：测试时间、科目单元、评分；展开后显示完整信息
       var sec = el("section", "t-group");
-      sec.appendChild(el("h3", "t-group-title", t(g[0]) + (i18n.getLang() === "zh" ? "（" + g[1].length + "）" : " (" + g[1].length + ")")));
-      g[1].forEach(function (a) { sec.appendChild(testCard(a, hasActive, offsetMs)); });
+      var head = el("div", "t-group-head");
+      head.appendChild(el("h3", "t-group-title", t(g[0]) + (i18n.getLang() === "zh" ? "（" + g[1].length + "）" : " (" + g[1].length + ")")));
+      if (isPast) {
+        var allOpen = g[1].every(function (a) { return openPast[a.id]; });
+        var all = el("button", "card-btn t-toggle-all", t(allOpen ? "tests.collapseAll" : "tests.expandAll"));
+        all.type = "button";
+        all.addEventListener("click", function () { g[1].forEach(function (a) { openPast[a.id] = !allOpen; }); rebuildModal(); });
+        head.appendChild(all);
+      }
+      sec.appendChild(head);
+      g[1].forEach(function (a) { sec.appendChild(isPast ? pastItem(a, hasActive, offsetMs) : testCard(a, hasActive, offsetMs)); });
       wrap.appendChild(sec);
     });
+    return wrap;
+  }
+
+  // 过往（已评分）的测试：折叠时只显示 测试时间、科目单元、评分；展开后显示完整信息
+  var openPast = {};
+  function pastItem(a, hasActive, offsetMs) {
+    var open = !!openPast[a.id];
+    var wrap = el("div", "past-item" + (open ? " is-open" : ""));
+    var panelId = "past-panel-" + a.id;
+    var btn = el("button", "past-toggle");
+    btn.type = "button";
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+    btn.setAttribute("aria-controls", panelId);
+    btn.setAttribute("data-test-id", String(a.id));
+    btn.appendChild(el("span", "p-time", formatDate(a.scheduledAt, a.timezone, i18n.getLang())));
+    btn.appendChild(el("span", "p-title", a.subject + " · " + a.unit));
+    btn.appendChild(el("span", "p-score", a.score ? t("tests.scoreValue", { s: a.score }) : "—"));
+    var chev = el("span", "p-chev");
+    chev.setAttribute("aria-hidden", "true");
+    btn.appendChild(chev);
+    var panel = el("div", "past-panel");
+    panel.id = panelId;
+    panel.hidden = !open;
+    panel.appendChild(testCard(a, hasActive, offsetMs));
+    btn.addEventListener("click", function () {
+      open = !open;
+      openPast[a.id] = open;
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
+      panel.hidden = !open;
+      wrap.classList.toggle("is-open", open);
+    });
+    wrap.appendChild(btn);
+    wrap.appendChild(panel);
     return wrap;
   }
 

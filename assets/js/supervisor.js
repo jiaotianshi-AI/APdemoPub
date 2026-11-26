@@ -346,6 +346,44 @@
     return c;
   }
 
+  // 过往的测试：折叠时只显示 测试时间、科目单元、评分
+  var openPast = {};
+  function pastItem(a) {
+    var open = !!openPast[a.id];
+    var wrap = el("div", "past-item" + (open ? " is-open" : ""));
+    var panelId = "past-panel-" + a.id;
+    var btn = el("button", "past-toggle");
+    btn.type = "button";
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+    btn.setAttribute("aria-controls", panelId);
+    btn.setAttribute("data-test-id", String(a.id));
+    btn.appendChild(el("span", "p-time", fmtWall(a.scheduledWall)));
+    btn.appendChild(el("span", "p-title", a.subject + " · " + a.unit));
+    btn.appendChild(el("span", "p-score", a.score ? a.score + " / 5" : "—"));
+    var chev = el("span", "p-chev");
+    chev.setAttribute("aria-hidden", "true");
+    btn.appendChild(chev);
+    var panel = el("div", "past-panel");
+    panel.id = panelId;
+    panel.hidden = !open;
+    panel.appendChild(card(a));
+    btn.addEventListener("click", function () {
+      open = !open;
+      openPast[a.id] = open;
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
+      panel.hidden = !open;
+      wrap.classList.toggle("is-open", open);
+      var sec = wrap.closest("section");
+      if (sec) { // 同步“全部展开/全部收起”按钮的文字
+        var items = sec.querySelectorAll(".past-toggle"), tg = sec.querySelector(".group-toggle");
+        if (tg) tg.textContent = Array.prototype.every.call(items, function (b) { return b.getAttribute("aria-expanded") === "true"; }) ? "全部收起" : "全部展开";
+      }
+    });
+    wrap.appendChild(btn);
+    wrap.appendChild(panel);
+    return wrap;
+  }
+
   function renderLists() {
     var host = $("lists");
     clear(host);
@@ -356,12 +394,22 @@
     var active = state.assessments.filter(function (a) { return a.status === "in_progress" || a.status === "submitted"; }).sort(newest);
     var past = state.assessments.filter(function (a) { return upcoming.indexOf(a) < 0 && active.indexOf(a) < 0; }).sort(newest);
 
-    [["将来的测试", upcoming, "还没有安排将来的测试。", true], ["进行中与待评分", active, "", false], ["过往的测试", past, "还没有过往的测试。", true]].forEach(function (g) {
+    [["将来的测试", upcoming, "还没有安排将来的测试。", true, false], ["进行中与待评分", active, "", false, false], ["过往的测试", past, "还没有过往的测试。", true, true]].forEach(function (g) {
       if (!g[1].length && !g[3]) return; // “进行中与待评分”没有内容时不显示
       var sec = el("section");
-      sec.appendChild(el("h2", "group-title", g[0] + "（" + g[1].length + "）"));
+      var head = el("div", "group-head");
+      head.appendChild(el("h2", "group-title", g[0] + "（" + g[1].length + "）"));
+      if (g[4] && g[1].length) {
+        // 过往的测试默认折叠：只显示 测试时间、科目单元、评分；展开后显示完整信息
+        var allOpen = g[1].every(function (a) { return openPast[a.id]; });
+        var all = el("button", "btn group-toggle", allOpen ? "全部收起" : "全部展开");
+        all.type = "button";
+        all.addEventListener("click", function () { g[1].forEach(function (a) { openPast[a.id] = !allOpen; }); renderLists(); });
+        head.appendChild(all);
+      }
+      sec.appendChild(head);
       if (!g[1].length) sec.appendChild(el("p", "empty-note", g[2]));
-      g[1].forEach(function (a) { sec.appendChild(card(a)); });
+      g[1].forEach(function (a) { sec.appendChild(g[4] ? pastItem(a) : card(a)); });
       host.appendChild(sec);
     });
   }

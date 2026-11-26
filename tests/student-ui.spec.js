@@ -52,6 +52,7 @@ test("所有测试：列表按状态分组；未完成的看不到题目；学�
   await expect(page.locator(".t-card", { hasText: "SubmittedUnit" })).toContainText("已提交，待评分");
   const graded = page.locator(".t-card", { hasText: "GradedUnit" });
   await expect(graded).toContainText("4 / 5");
+  await page.locator(".past-item", { hasText: "GradedUnit" }).locator(".past-toggle").click(); // 过往的测试默认折叠，展开后才有完整信息和链接
   await expect(graded.getByRole("link", { name: /^查看题目和我的答案/ })).toHaveAttribute("href", /^\/exam\?id=\d+$/);
   // 没有任何修改/删除/输入控件
   expect(await page.locator("#modal input, #modal textarea, #modal select").count()).toBe(0);
@@ -395,4 +396,66 @@ test("截图归档：学生页（所有测试、确认）和测试页（开始�
   await page.fill("#answer", "细胞膜具有选择透过性，小分子可以直接扩散，离子需要通道蛋白。");
   await expect(page.locator(".save-state")).toHaveText("已保存");
   await page.screenshot({ path: path.join(dir, "exam-running.png") });
+});
+
+test("学生页：过往（已评分）的测试默认折叠，只显示测试时间、科目单元、评分；展开后显示完整信息；中英文", async ({ page, playwright, baseURL }) => {
+  const s = await scenario(page, playwright, baseURL);
+  const { db } = require("../server/db");
+  const ins = (unit, wall, iso, status, score) => Number(db.prepare(`INSERT INTO assessments (student_id, subject, unit, unit_start_date, unit_start_at, scheduled_wall, scheduled_at, timezone, status, score, duration_minutes, attempt_no, created_at, updated_at)
+    VALUES (?, 'AP Biology', ?, '2020-01-01', '2020-01-01T00:00:00-08:00', ?, ?, 'America/Vancouver', ?, ?, 60, 1, ?, ?)`).run(s.stu.id, unit, wall, iso, status, score, new Date().toISOString(), new Date().toISOString()).lastInsertRowid);
+  ins("PastA", "2025-01-10T10:00", "2025-01-10T10:00:00-08:00", "graded", 5);
+  ins("PastB", "2025-02-10T09:30", "2025-02-10T09:30:00-08:00", "graded", 2);
+  ins("Waiting", "2025-03-10T09:30", "2025-03-10T09:30:00-07:00", "submitted", null);
+  await page.goto("/?lang=zh");
+  await page.click("#all-tests-btn");
+  const a = page.locator(".past-item", { hasText: "PastA" });
+  const toggle = a.locator(".past-toggle");
+  await expect(page.locator(".past-item")).toHaveCount(2); // 只有已评分的折叠；待评分、待测试不折叠
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(toggle.locator(".p-time")).toHaveText("2025年1月10日 10:00 AM");
+  await expect(toggle.locator(".p-title")).toHaveText("AP Biology · PastA");
+  await expect(toggle.locator(".p-score")).toHaveText("5 / 5");
+  await expect(a.locator(".past-panel")).toBeHidden();
+  await expect(a.getByRole("link", { name: /^查看题目和我的答案/ })).toBeHidden();
+  await expect(page.locator(".t-card", { hasText: "Waiting" })).toBeVisible(); // 待评分的完整显示
+  await expect(page.locator(".t-card", { hasText: "Unit 2" })).toBeVisible();   // 待测试的完整显示
+
+  if (test.info().project.name === "chromium") {
+    const fs = require("fs"), path = require("path");
+    const dir = path.join(__dirname, "screenshots", "student");
+    fs.mkdirSync(dir, { recursive: true });
+    await page.screenshot({ path: path.join(dir, "student-past-collapsed.png") });
+  }
+  await toggle.click();
+  if (test.info().project.name === "chromium") await page.screenshot({ path: require("path").join(__dirname, "screenshots", "student", "student-past-expanded.png") });
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(a.locator(".past-panel")).toBeVisible();
+  await expect(a).toContainText("测试时长");
+  await expect(a.getByRole("link", { name: /^查看题目和我的答案/ })).toBeVisible();
+  await expect(page.locator(".past-item", { hasText: "PastB" }).locator(".past-panel")).toBeHidden();
+
+  // 全部展开 / 全部收起
+  const all = page.locator(".t-toggle-all");
+  await expect(all).toHaveText("全部展开");
+  await all.click();
+  await expect(page.locator(".past-panel:visible")).toHaveCount(2);
+  await expect(all).toHaveText("全部收起");
+  await all.click();
+  await expect(page.locator(".past-panel:visible")).toHaveCount(0);
+
+  // 英文：按钮文字和摘要（弹窗打开时页面其余部分不可操作，先关闭再切换语言）
+  await page.keyboard.press("Escape");
+  await page.click('.lang-btn[data-lang="en"]');
+  await page.click("#all-tests-btn");
+  await expect(page.locator(".t-toggle-all")).toHaveText("Expand all");
+  await expect(page.locator(".past-item", { hasText: "PastA" }).locator(".p-time")).toHaveText("Jan 10, 2025, 10:00 AM");
+  await expect(page.locator(".past-item", { hasText: "PastA" }).locator(".p-score")).toHaveText("5 / 5");
+  // 键盘展开；关闭再打开弹窗，展开状态保持
+  const t2 = page.locator(".past-item", { hasText: "PastA" }).locator(".past-toggle");
+  await t2.focus();
+  await page.keyboard.press("Enter");
+  await expect(t2).toHaveAttribute("aria-expanded", "true");
+  await page.keyboard.press("Escape");
+  await page.click("#all-tests-btn");
+  await expect(page.locator(".past-item", { hasText: "PastA" }).locator(".past-toggle")).toHaveAttribute("aria-expanded", "true");
 });

@@ -38,6 +38,12 @@ async function fillTest(page, { date = "2031-03-15", time = "15:00", start = "20
   }
 }
 const card = (page, unit) => page.locator(".test-card", { hasText: unit });
+// 过往（已评分）的测试默认折叠；需要操作里面的按钮时先展开
+async function expand(page, unit) {
+  const toggle = page.locator(".past-item", { hasText: unit }).locator(".past-toggle");
+  if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+}
 async function createVia(page, unit, opts = {}) {
   await page.click("#new-btn");
   if (opts.all) await page.locator("#target-box .check.all input").check();
@@ -207,6 +213,7 @@ test("每题的回答 PDF 与评分：每题可单独上传回答、评分；评
   await expect(c).toContainText("4 / 5（加权平均 4）");
   await expect(c.getByRole("button", { name: /^修改：/ })).toHaveCount(0);
   await expect(c.getByRole("button", { name: /^删除：/ })).toHaveCount(0);
+  await expand(page, unit);
   await expect(c.getByRole("button", { name: /^修改评分：/ })).toBeVisible();
   await expect(c.getByRole("button", { name: /^重测：/ })).toBeVisible();
 
@@ -254,6 +261,7 @@ test("重测：生成一条新的待测试记录，原记录保留", async ({ pa
   await page.click("#score-submit");
   await expect(page.locator("#score-dialog")).toBeHidden();
 
+  await expand(page, unit);
   await card(page, unit).getByRole("button", { name: /^重测：/ }).click();
   await expect(page.locator("#retake-summary")).toContainText("汇总评分 2 / 5");
   await page.click("#retake-submit");
@@ -447,6 +455,7 @@ test("查看答题的对话框通过 axe；还没开始的测试提示“学生�
   const { db } = require("../server/db");
   db.prepare("UPDATE assessments SET status = 'graded', score = 4 WHERE unit = ?").run(unit);
   await page.reload();
+  await expand(page, unit);
   await card(page, unit).getByRole("button", { name: /^查看学生答题：/ }).click();
   await expect(page.locator("#view-info")).toContainText("学生还没有开始这场测试");
   const res = await new AxeBuilder({ page }).analyze();
@@ -528,6 +537,7 @@ test("新建测试：每个题目 PDF 旁边可以设置权重（默认 1）；�
   await expect(c).toContainText("3 / 5（加权平均 3）");
 
   // 已评分后改权重（Q1 权重 3：(15+2+5)/6 = 3.67 → 4），汇总随之变化
+  await expand(page, unit);
   await c.getByRole("button", { name: /^修改评分：/ }).click();
   await wInputs.nth(0).fill("3");
   await page.click("#score-submit");
@@ -550,4 +560,97 @@ test("修改待测试：能改每个题目的权重", async ({ page }) => {
   await c.getByRole("button", { name: /^修改：/ }).click();
   await expect(page.locator("#q-files .weight-input").nth(1)).toHaveValue("5");
   await page.keyboard.press("Escape");
+});
+
+// ---- 过往测试折叠 ----
+async function seedPast(page) {
+  const sup = await makeUser("supervisor", "pastsup");
+  const stu = await makeUser("student", "paststu");
+  linkSupervisor(sup.id, stu.id);
+  const { db } = require("../server/db");
+  const ins = (unit, wall, iso, status, score) => Number(db.prepare(`INSERT INTO assessments (student_id, created_by, subject, unit, unit_start_date, unit_start_at, scheduled_wall, scheduled_at, timezone, status, score, duration_minutes, attempt_no, created_at, updated_at)
+    VALUES (?, ?, 'AP Biology', ?, '2024-01-01', '2024-01-01T00:00:00-08:00', ?, ?, 'America/Vancouver', ?, ?, 60, 1, ?, ?)`).run(stu.id, sup.id, unit, wall, iso, status, score, new Date().toISOString(), new Date().toISOString()).lastInsertRowid);
+  const a = ins("PastOne", "2025-01-10T10:00", "2025-01-10T10:00:00-08:00", "graded", 4);
+  // 给 PastOne 一道题（只在数据库里放一条文件记录，评分对话框需要至少一道题）
+  const fid = Number(db.prepare("INSERT INTO files (stored_name, original_name, size, uploaded_by, created_at) VALUES (?, 'q.pdf', 10, ?, ?)").run(require("crypto").randomBytes(16).toString("hex") + ".pdf", sup.id, new Date().toISOString()).lastInsertRowid);
+  db.prepare("INSERT INTO assessment_files (assessment_id, file_id, role, position) VALUES (?, ?, 'question', 0)").run(a, fid);
+  const b = ins("PastTwo", "2025-02-10T09:30", "2025-02-10T09:30:00-08:00", "graded", 2);
+  const c = ins("PastUnscored", "2025-03-10T09:30", "2025-03-10T09:30:00-07:00", "scheduled", null); // 时间已过但没有评分
+  return { sup, stu, ids: { a, b, c } };
+}
+
+test("督导者页：过往的测试默认折叠，只显示测试时间、科目单元、评分；展开后显示完整信息；可全部展开/收起", async ({ page }) => {
+  const { sup } = await seedPast(page);
+  await page.context().clearCookies();
+  await page.request.post("/api/login", { headers: H, data: { username: sup.username, password: PASSWORD } });
+  await page.goto("/supervisor");
+  await expect(page.locator(".past-item")).toHaveCount(3);
+  const one = page.locator(".past-item", { hasText: "PastOne" });
+  const toggle = one.locator(".past-toggle");
+  // 折叠：摘要行只有三项（时间、科目单元、评分），完整信息不可见
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(toggle.locator(".p-time")).toHaveText("2025年1月10日 10:00 AM");
+  await expect(toggle.locator(".p-title")).toHaveText("AP Biology · PastOne");
+  await expect(toggle.locator(".p-score")).toHaveText("4 / 5");
+  await expect(one.locator(".past-panel")).toBeHidden();
+  await expect(one.getByRole("button", { name: /^重测：/ })).toBeHidden();
+  await expect(one.locator(".q-table")).toBeHidden();
+  await expect(page.locator(".past-item", { hasText: "PastUnscored" }).locator(".p-score")).toHaveText("—");
+  // 将来/进行中的测试不折叠（这里没有，所以“将来的测试”为空）
+  await expect(page.locator("#lists .group-title").first()).toContainText("将来的测试（0）");
+
+  if (test.info().project.name === "chromium") {
+    const fs = require("fs"), path = require("path");
+    const dir = path.join(__dirname, "screenshots", "supervisor");
+    fs.mkdirSync(dir, { recursive: true });
+    await page.screenshot({ path: path.join(dir, "supervisor-past-collapsed.png"), fullPage: true });
+  }
+  // 展开：完整信息（题目表、时长、按钮等）
+  await toggle.click();
+  if (test.info().project.name === "chromium") await page.screenshot({ path: require("path").join(__dirname, "screenshots", "supervisor", "supervisor-past-expanded.png"), fullPage: true });
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(one.locator(".past-panel")).toBeVisible();
+  await expect(one.locator(".q-table")).toBeVisible();
+  await expect(one).toContainText("测试时长");
+  await expect(one.getByRole("button", { name: /^重测：/ })).toBeVisible();
+  await expect(page.locator(".past-item", { hasText: "PastTwo" }).locator(".past-panel")).toBeHidden(); // 其他的仍折叠
+  // 再点收起
+  await toggle.click();
+  await expect(one.locator(".past-panel")).toBeHidden();
+
+  // 全部展开 / 全部收起
+  const all = page.locator(".group-toggle");
+  await expect(all).toHaveText("全部展开");
+  await all.click();
+  await expect(page.locator(".past-panel:visible")).toHaveCount(3);
+  await expect(all).toHaveText("全部收起");
+  await all.click();
+  await expect(page.locator(".past-panel:visible")).toHaveCount(0);
+  await expect(all).toHaveText("全部展开");
+  // 单个展开后，按钮文字同步；全部展开后收起一个，按钮回到“全部展开”
+  await all.click();
+  await page.locator(".past-item", { hasText: "PastTwo" }).locator(".past-toggle").click();
+  await expect(all).toHaveText("全部展开");
+});
+
+test("督导者页：折叠的展开状态在重新加载列表（如保存评分）后保持；键盘可展开/收起", async ({ page }) => {
+  const { sup } = await seedPast(page);
+  await page.context().clearCookies();
+  await page.request.post("/api/login", { headers: H, data: { username: sup.username, password: PASSWORD } });
+  await page.goto("/supervisor");
+  const one = page.locator(".past-item", { hasText: "PastOne" });
+  const toggle = one.locator(".past-toggle");
+  await toggle.focus();
+  await page.keyboard.press("Enter");
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await one.getByRole("button", { name: /^修改评分：/ }).click();
+  await page.locator("#grade-rows .grade-row select").first().selectOption("3");
+  await page.click("#score-submit");
+  await expect(page.locator("#score-dialog")).toBeHidden();
+  await expect(one.locator(".p-score")).toHaveText("3 / 5"); // 摘要里的评分随之更新
+  await expect(toggle).toHaveAttribute("aria-expanded", "true"); // 仍然展开
+  await page.keyboard.press("Escape");
+  await toggle.focus();
+  await page.keyboard.press("Space");
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
 });
