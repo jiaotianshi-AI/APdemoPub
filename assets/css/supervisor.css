@@ -66,3 +66,12 @@ legend { padding: 0; font-weight: 600; }
 }
 .field input, .field select { width: 100%; min-width: 0; }
 .row > .field { min-width: 0; }
+
+.badge.in_progress { background: #fef3c7; color: #92400e; }
+.badge.submitted { background: #e0f2fe; color: #075985; }
+.attempt-line { margin-top: 8px; font-size: 0.875rem; color: var(--c-muted); }
+.view-q { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--c-border); border-radius: 12px; }
+.view-q h3 { margin: 0; font-size: 1rem; }
+.view-q .btn { margin-top: 8px; padding: 0 14px; font-size: 0.9375rem; }
+.answer-text { margin-top: 4px; padding: 10px 12px; background: #f1f5f9; border-radius: 8px; white-space: pre-wrap; word-break: break-word; }
+#view-dialog { width: min(680px, calc(100% - 32px)); }

@@ -39,6 +39,11 @@ cd ~/APdemoPub && git pull && sudo bash deploy/update.sh
    这一时刻是 UTC 23:00。你确认温哥华当前是 UTC-7，所以应当显示 `4:00:00 PM PDT`（如果显示 `3:00:00 PM PST`，说明服务器的时区数据与你的预期不一致，请告诉我）。
 3. 单个 PDF 上限 20MB，每条测试的题目、答题文件各最多 10 个；超过会被拒绝。
 
+## 升级到“测试流程”版本（数据库会自动升级）
+- 第一次用新版本启动时，数据库会**自动升级**：测试记录增加“测试时长”（旧记录默认 60 分钟）和新的状态，并新增答卷、答案、离开页面记录三张表；原有账号、测试、文件和关联都保留。
+- 升级前建议先手动备份一次：`sudo bash /opt/apdemo/deploy/backup.sh`。
+- 升级命令不变：`cd ~/APdemoPub && git pull && sudo bash deploy/update.sh`。
+
 ## 常用操作
 - 管理员忘记密码：`sudo bash /opt/apdemo/deploy/create-admin.sh 账号名 reset`
 - 看日志：`sudo journalctl -u apdemo -n 50 --no-pager`

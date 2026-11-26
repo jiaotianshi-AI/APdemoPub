@@ -366,3 +366,28 @@ test("测试页没有视频、问答机器人和外部链接；页面只向本�
   expect(await page.locator("#mod-qa, #mod-videos, #mod-sites, a[href^='http']").count()).toBe(0);
   await expect(page.locator("#exam-root")).not.toContainText("YouTube");
 });
+
+test("截图归档：学生页（所有测试、确认）和测试页（开始前、作答中、回顾）", async ({ page, playwright, baseURL }, testInfo) => {
+  const fs = require("fs");
+  const path = require("path");
+  const dir = path.join(__dirname, "screenshots", "student" + (testInfo.project.name === "chromium" ? "" : "-" + testInfo.project.name));
+  fs.mkdirSync(dir, { recursive: true });
+  const s = await scenario(page, playwright, baseURL, { duration: 60 });
+  await page.clock.install({ time: new Date("2031-03-12T09:30:00-07:00") });
+  await page.goto("/?lang=zh");
+  await expect(page.locator("#start-btn")).toBeVisible();
+  await page.screenshot({ path: path.join(dir, "student-home.png"), fullPage: true });
+  await page.click("#all-tests-btn");
+  await page.screenshot({ path: path.join(dir, "student-all-tests.png") });
+  await page.keyboard.press("Escape");
+  await page.click("#start-btn");
+  await page.screenshot({ path: path.join(dir, "student-confirm.png") });
+  await page.goto(`/exam?id=${s.asm.id}&early=1&lang=zh`);
+  await page.getByLabel(/在屏幕上输入文字/).check();
+  await page.screenshot({ path: path.join(dir, "exam-before.png"), fullPage: true });
+  await page.getByRole("button", { name: "开始计时" }).click();
+  await expect(page.locator("#timer")).toBeVisible();
+  await page.fill("#answer", "细胞膜具有选择透过性，小分子可以直接扩散，离子需要通道蛋白。");
+  await expect(page.locator(".save-state")).toHaveText("已保存");
+  await page.screenshot({ path: path.join(dir, "exam-running.png") });
+});

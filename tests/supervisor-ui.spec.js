@@ -304,3 +304,96 @@ test("截图归档：督导者页面（供人工审阅外观）", async ({ page 
   await page.screenshot({ path: path.join(dir, "supervisor-create.png") });
   expect(students.length).toBe(2);
 });
+
+// ---- 测试流程相关：时长、新状态、查看学生答题、AI 评分预留 ----
+const { uploadPdf: uploadPdfApi, loginCtx } = require("./helpers");
+
+test("新建测试可以设置测试时长（默认 60 分钟），并显示在列表里；时长校验", async ({ page, playwright, baseURL }) => {
+  await setup(page, 1);
+  await page.click("#new-btn");
+  await expect(page.locator("#t-duration")).toHaveValue("60");
+  const unit = "Unit " + uid("d");
+  await fillTest(page, { unit });
+  await page.fill("#t-duration", "3");
+  await page.click("#test-submit");
+  await expect(page.locator("#test-error")).toContainText("5–300 分钟");
+  await page.fill("#t-duration", "90");
+  await page.click("#test-submit");
+  await expect(page.locator("#test-dialog")).toBeHidden();
+  await expect(card(page, unit)).toContainText("测试时长");
+  await expect(card(page, unit)).toContainText("90 分钟");
+
+  await card(page, unit).getByRole("button", { name: /^修改：/ }).click();
+  await expect(page.locator("#t-duration")).toHaveValue("90");
+  await page.fill("#t-duration", "45");
+  await page.click("#test-submit");
+  await expect(card(page, unit)).toContainText("45 分钟");
+});
+
+test("学生测试中/已提交：显示状态和作答信息；查看学生答题；AI 评分接口已预留（提示尚未开放）", async ({ page, playwright, baseURL }) => {
+  const { sup, students } = await setup(page, 1);
+  const unit = "Unit " + uid("v");
+  await createVia(page, unit, { files: ["题目A.pdf", "题目B.pdf"] });
+  // 学生开始作答
+  const stuCtx = await loginCtx(playwright, baseURL, students[0].username);
+  const list = (await (await page.request.get(`/api/supervisor/students/${students[0].id}/assessments`)).json()).assessments;
+  const asm = list.find((a) => a.unit === unit);
+  const started = await stuCtx.post(`/api/student/assessments/${asm.id}/start`, { headers: H, data: { method: "typed", confirmEarly: true } });
+  expect(started.status()).toBe(200);
+  const qs = (await started.json()).questions;
+  await stuCtx.put(`/api/student/assessments/${asm.id}/answers/${qs[0].id}`, { headers: H, data: { text: "学生写的第一题答案\n第二行" } });
+
+  await page.reload();
+  await expect(page.locator("#lists .group-title").nth(1)).toContainText("进行中与待评分（1）");
+  const c = card(page, unit);
+  await expect(c).toContainText("测试中");
+  await expect(c).toContainText("学生正在测试，完成后才能修改");
+  await expect(c).toContainText("作答方式：屏幕输入");
+  await expect(c.getByRole("button", { name: /^修改：/ })).toHaveCount(0);
+  await expect(c.getByRole("button", { name: /^删除：/ })).toHaveCount(0);
+
+  await stuCtx.post(`/api/student/assessments/${asm.id}/submit`, { headers: H, data: {} });
+  await page.reload();
+  await expect(c).toContainText("已提交，待评分");
+  await expect(c).toContainText("离开页面 0 次");
+  await c.getByRole("button", { name: /^查看学生答题：/ }).click();
+  await expect(page.locator("#view-dialog")).toBeVisible();
+  await expect(page.locator("#view-questions .view-q")).toHaveCount(2);
+  await expect(page.locator("#view-questions .view-q").first()).toContainText("题目A.pdf");
+  await expect(page.locator("#view-questions .answer-text").first()).toHaveText("学生写的第一题答案\n第二行");
+  await expect(page.locator("#view-questions .answer-text").nth(1)).toHaveText("（没有填写）");
+  // AI 评分：接口已预留，现在提示尚未开放
+  await page.getByRole("button", { name: "请求 AI 评分：第 1 题" }).click();
+  await expect(page.locator("#view-ai-msg")).toContainText("AI 评分功能尚未开放");
+  await page.click("#view-ai-all");
+  await expect(page.locator("#view-ai-msg")).toContainText("AI 评分功能尚未开放");
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#view-dialog")).toBeHidden();
+
+  // 提交后可以上传扫描件并评分
+  await c.getByRole("button", { name: /^答题与分数：/ }).click();
+  await page.locator("#a-files input[type=file]").setInputFiles(file("扫描.pdf"));
+  await expect(page.locator("#a-files .file-item")).toHaveCount(1);
+  await page.selectOption("#s-score", "3");
+  await page.click("#score-submit");
+  await expect(c).toContainText("已评分");
+  await expect(c).toContainText("3 / 5");
+  expect(sup.id).toBeGreaterThan(0);
+  await stuCtx.dispose();
+});
+
+test("查看答题的对话框通过 axe；还没开始的测试提示“学生还没有开始”", async ({ page }) => {
+  await setup(page, 1);
+  const unit = "Unit " + uid("x");
+  await createVia(page, unit);
+  const c = card(page, unit);
+  // 待测试没有“查看”按钮；用已评分的无答卷记录检查提示
+  const { db } = require("../server/db");
+  db.prepare("UPDATE assessments SET status = 'graded', score = 4 WHERE unit = ?").run(unit);
+  await page.reload();
+  await card(page, unit).getByRole("button", { name: /^查看学生答题：/ }).click();
+  await expect(page.locator("#view-info")).toContainText("学生还没有开始这场测试");
+  const res = await new AxeBuilder({ page }).analyze();
+  expect(res.violations.filter((v) => ["serious", "critical"].includes(v.impact)).map((v) => v.id)).toEqual([]);
+  expect(c).toBeTruthy();
+});

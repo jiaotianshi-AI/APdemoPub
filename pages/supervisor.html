@@ -61,6 +61,11 @@
         <input id="t-start" type="date" required>
         <span class="hint">学生页的学习进度 = 从这一天到测试时间，已经走过的比例。</span>
       </div>
+      <div class="field">
+        <label for="t-duration">测试时长（分钟）</label>
+        <input id="t-duration" type="number" min="5" max="300" step="1" value="60" inputmode="numeric" required>
+        <span class="hint">学生开始后倒计时，时间到会自动提交已写的答案。5–300 分钟。</span>
+      </div>
       <div class="row">
         <div class="field">
           <label for="t-subject">测试科目</label>
@@ -107,6 +112,21 @@
         <button type="submit" class="btn primary" id="score-submit">保存</button>
       </div>
     </form>
+  </dialog>
+
+  <!-- 查看学生答题 -->
+  <dialog id="view-dialog" aria-labelledby="view-title">
+    <div>
+      <h2 id="view-title">学生答题</h2>
+      <p id="view-summary" class="muted"></p>
+      <div id="view-info"></div>
+      <div id="view-questions"></div>
+      <p id="view-ai-msg" class="msg" role="status" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn" id="view-ai-all">请求 AI 评分（整次测试）</button>
+        <button type="button" class="btn primary" data-close>关闭</button>
+      </div>
+    </div>
   </dialog>
 
   <!-- 重测 -->

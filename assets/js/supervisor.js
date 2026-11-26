@@ -2,6 +2,7 @@
 (function () {
   "use strict";
 
+  var STATUS = { scheduled: "待测试", in_progress: "测试中", submitted: "已提交，待评分", graded: "已评分" };
   var MAX_FILES = 10;
   var MAX_BYTES = 20 * 1024 * 1024;
   var state = { students: [], currentId: null, assessments: [] };
@@ -213,7 +214,7 @@
     var c = el("article", "test-card");
     var head = el("div", "test-head");
     head.appendChild(el("h3", "", a.subject + " · " + a.unit));
-    head.appendChild(el("span", "badge" + (a.status === "graded" ? " graded" : ""), a.status === "graded" ? "已评分" : "待测试"));
+    head.appendChild(el("span", "badge " + a.status, STATUS[a.status] || a.status));
     if (a.attemptNo > 1) head.appendChild(el("span", "badge tag", "第 " + a.attemptNo + " 次（重测）"));
     c.appendChild(head);
 
@@ -225,18 +226,27 @@
       meta.appendChild(d);
     }
     item("测试时间", fmtWall(a.scheduledWall));
+    item("测试时长", a.durationMinutes + " 分钟");
     item("本单元开始学习", fmtDate(a.unitStartDate));
     item("测试分数", a.score ? a.score + " / 5" : "—", a.score ? "score" : "");
     c.appendChild(meta);
     c.appendChild(fileRow("测试题目", a.questionFiles));
-    c.appendChild(fileRow("学生答题", a.answerFiles));
+    c.appendChild(fileRow("学生答题（扫描件）", a.answerFiles));
+    if (a.attempt) c.appendChild(el("p", "attempt-line", attemptLine(a.attempt)));
 
     var act = el("div", "card-actions");
     if (a.status === "scheduled") {
       act.appendChild(btn("修改", a, function (x) { openTestDialog("edit", x); }));
       act.appendChild(btn("答题与分数", a, openScoreDialog));
       act.appendChild(btn("删除", a, askDelete, "danger"));
+    } else if (a.status === "in_progress") {
+      act.appendChild(btn("查看答题", a, openView));
+      act.appendChild(el("span", "muted", "学生正在测试，完成后才能修改。"));
+    } else if (a.status === "submitted") {
+      act.appendChild(btn("查看学生答题", a, openView));
+      act.appendChild(btn("答题与分数", a, openScoreDialog));
     } else {
+      act.appendChild(btn("查看学生答题", a, openView));
       act.appendChild(btn("修改分数", a, openScoreDialog));
       act.appendChild(btn("重测", a, openRetakeDialog));
     }
@@ -248,19 +258,86 @@
     var host = $("lists");
     clear(host);
     var now = Date.now();
+    function newest(x, y) { return Date.parse(y.scheduledAt) - Date.parse(x.scheduledAt); }
     var upcoming = state.assessments.filter(function (a) { return a.status === "scheduled" && Date.parse(a.scheduledAt) > now; })
       .sort(function (x, y) { return Date.parse(x.scheduledAt) - Date.parse(y.scheduledAt); });
-    var past = state.assessments.filter(function (a) { return upcoming.indexOf(a) < 0; })
-      .sort(function (x, y) { return Date.parse(y.scheduledAt) - Date.parse(x.scheduledAt); });
+    var active = state.assessments.filter(function (a) { return a.status === "in_progress" || a.status === "submitted"; }).sort(newest);
+    var past = state.assessments.filter(function (a) { return upcoming.indexOf(a) < 0 && active.indexOf(a) < 0; }).sort(newest);
 
-    [["将来的测试", upcoming, "还没有安排将来的测试。"], ["过往的测试", past, "还没有过往的测试。"]].forEach(function (g) {
+    [["将来的测试", upcoming, "还没有安排将来的测试。", true], ["进行中与待评分", active, "", false], ["过往的测试", past, "还没有过往的测试。", true]].forEach(function (g) {
+      if (!g[1].length && !g[3]) return; // “进行中与待评分”没有内容时不显示
       var sec = el("section");
-      var h = el("h2", "group-title", g[0] + "（" + g[1].length + "）");
-      sec.appendChild(h);
+      sec.appendChild(el("h2", "group-title", g[0] + "（" + g[1].length + "）"));
       if (!g[1].length) sec.appendChild(el("p", "empty-note", g[2]));
       g[1].forEach(function (a) { sec.appendChild(card(a)); });
       host.appendChild(sec);
     });
+  }
+
+  /* ---------- 查看学生答题 ---------- */
+  function fmtInstant(iso) {
+    try {
+      return new Date(iso).toLocaleString("zh-CN", { timeZone: "America/Vancouver", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit", hour12: false }) + "（温哥华时间）";
+    } catch (e) { return iso; }
+  }
+  function attemptLine(at) {
+    var parts = ["作答方式：" + (at.method === "typed" ? "屏幕输入" : "纸质作答")];
+    parts.push("开始于 " + fmtInstant(at.startedAt) + (at.early ? "（提前开始）" : ""));
+    if (at.submittedAt) {
+      var mins = Math.max(1, Math.round((Date.parse(at.submittedAt) - Date.parse(at.startedAt)) / 60000));
+      parts.push((at.autoSubmitted ? "时间到自动提交" : "提交于 " + fmtInstant(at.submittedAt)) + "，用时约 " + mins + " 分钟");
+    } else parts.push("正在作答，截止 " + fmtInstant(at.deadlineAt));
+    var away = "离开页面 " + at.leaveCount + " 次";
+    if (at.awaySeconds) away += "，共约 " + (at.awaySeconds >= 60 ? Math.round(at.awaySeconds / 60) + " 分钟" : at.awaySeconds + " 秒");
+    if (at.pdfLeaves) away += "（另有 " + at.pdfLeaves + " 次是为了打开题目 PDF）";
+    parts.push(away);
+    return parts.join("；") + "。";
+  }
+
+  var viewing = null;
+  function aiMessage(text, isErr) { var m = $("view-ai-msg"); m.textContent = text; m.className = "msg " + (isErr ? "error" : "ok"); m.hidden = !text; }
+  function requestAi(body) {
+    aiMessage("");
+    api("POST", "/api/supervisor/assessments/" + viewing.id + "/ai-score", body).then(function () { aiMessage("已提交 AI 评分请求。"); })
+      .catch(function (e) { aiMessage(e.code === "AI_SCORING_NOT_AVAILABLE" ? "AI 评分功能尚未开放（接口已预留）。" : e.message, true); });
+  }
+  $("view-ai-all").addEventListener("click", function () { requestAi({}); });
+
+  function openView(a) {
+    viewing = a;
+    aiMessage("");
+    $("view-summary").textContent = a.subject + " · " + a.unit + "　" + fmtWall(a.scheduledWall);
+    var info = $("view-info"), qbox = $("view-questions");
+    clear(info); clear(qbox);
+    qbox.appendChild(el("p", "muted", "加载中…"));
+    openDialog($("view-dialog"));
+    api("GET", "/api/supervisor/assessments/" + a.id + "/attempt").then(function (data) {
+      clear(qbox);
+      if (data.attempt) info.appendChild(el("p", "attempt-line", attemptLine(data.attempt)));
+      else info.appendChild(el("p", "muted", "学生还没有开始这场测试。"));
+      var typed = data.attempt && data.attempt.method === "typed";
+      data.questions.forEach(function (q) {
+        var box = el("div", "view-q");
+        box.appendChild(el("h3", "", "第 " + q.no + " 题"));
+        var link = el("a", "file-link", q.name);
+        link.href = "/api/supervisor/files/" + q.id;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        box.appendChild(link);
+        if (data.attempt) {
+          if (typed) {
+            box.appendChild(el("p", "muted", "学生的答案"));
+            box.appendChild(el("div", "answer-text", q.answer && q.answer.trim() ? q.answer : "（没有填写）"));
+          } else box.appendChild(el("p", "muted", "学生选择纸质作答，请在“答题与分数”里上传扫描件。"));
+        }
+        var ai = el("button", "btn", "请求 AI 评分（本题）");
+        ai.type = "button";
+        ai.setAttribute("aria-label", "请求 AI 评分：第 " + q.no + " 题");
+        ai.addEventListener("click", function () { requestAi({ questionFileId: q.id }); });
+        box.appendChild(ai);
+        qbox.appendChild(box);
+      });
+    }).catch(function (e) { clear(qbox); qbox.appendChild(el("p", "msg error", e.message)); });
   }
 
   /* ---------- 新建 / 修改测试 ---------- */
@@ -317,6 +394,7 @@
       $("t-date").value = a.scheduledWall.slice(0, 10);
       $("t-time").value = a.scheduledWall.slice(11, 16);
       $("t-start").value = a.unitStartDate;
+      $("t-duration").value = String(a.durationMinutes);
       $("t-subject").value = a.subject;
       $("t-unit").value = a.unit;
       testForm.files = fileList($("q-files"), a.questionFiles, "题目 PDF");
@@ -344,7 +422,9 @@
     var fileIds = testForm.files.ids();
     if (!fileIds.length) return showMsg("test-error", "请至少上传一个题目 PDF。");
 
-    var body = { scheduledWall: date + "T" + time, subject: subject, unit: unit, unitStartDate: start, questionFileIds: fileIds };
+    var duration = Number($("t-duration").value);
+    if (!Number.isInteger(duration) || duration < 5 || duration > 300) return showMsg("test-error", "测试时长必须是 5–300 分钟的整数。");
+    var body = { scheduledWall: date + "T" + time, subject: subject, unit: unit, unitStartDate: start, durationMinutes: duration, questionFileIds: fileIds };
     var req;
     if (testForm.mode === "create") { body.studentIds = studentIds; req = api("POST", "/api/supervisor/assessments", body); }
     else req = api("PATCH", "/api/supervisor/assessments/" + testForm.assessment.id, body);
