@@ -24,7 +24,7 @@ deploy/               Caddy 配置、systemd 服务、安装/更新/备份脚本
 docs/                 DATA_MODEL.md、API.md
 tests/                Playwright 测试与截图
 ```
-后台只用 Node.js 自带功能（`node:sqlite`、`crypto`、`http`），**没有运行时 npm 依赖**；需要 Node.js 22.13 或更高。
+后台只用 Node.js 自带功能（`node:sqlite`、`crypto`、`http`），运行时 npm 依赖只有一个：`unpdf`（把 PDF 里的文字提取出来，给 DeepSeek 等只能读文字的 AI 模型用）；服务器上更新时 `deploy/update.sh` 会自动执行 `npm ci --omit=dev` 安装它；需要 Node.js 22.13 或更高。
 
 ## 本地运行
 ```bash
@@ -61,12 +61,14 @@ npm start                              # 然后访问 http://localhost:3000/
 - **“禁用联网和 QA bot”的实际含义**：测试页只向本站通信，页面里没有视频、问答机器人和外部链接；测试进行中学生页也会隐藏这些内容。网页**无法**阻止学生切换到浏览器的其他标签页或其他应用，所以系统会**记录离开页面的次数和时长**（为打开题目 PDF 而离开的单独统计），督导者能看到。要真正锁定设备，需要平板系统自带的功能（例如 iPad 的“引导式访问”）。
 
 ## AI 判分
-- **管理员**在 `/admin/ai` 设置：判分用的 AI 模型（服务商为 Anthropic/Claude，默认 `claude-opus-5-5`，可换成别的模型名）、API 密钥、判分系统提示语（可编辑，可恢复默认）。“测试连通性”会用页面上填的（或已保存的）密钥发一个很小的请求，告诉你是否通、用时多久、错在哪里。
+- **管理员**在 `/admin/ai` 设置：AI 服务商（Anthropic/Claude、OpenAI/GPT、DeepSeek，或任何“OpenAI 兼容”的自定义服务商，如通义千问、Kimi、智谱，需填 https 接口地址）、判分用的模型名、API 密钥（每个服务商各自保存，选中并保存的那个用于判分）、判分系统提示语（可编辑，可恢复默认）。“测试连通性”会用页面上填的（或已保存的）密钥发一个很小的请求，告诉你是否通、用时多久、错在哪里。
 - **API 密钥**加密（AES-256-GCM）后存进数据库；加密用的主密钥是服务器上的一个文件（`/var/lib/apdemo/master.key`，权限 600，第一次需要时自动生成），**不在数据库里，也不在每日备份里**。页面和接口永远不会返回已保存的密钥，只显示末 4 位；审计日志只记录“改了哪几项”，不记录密钥和提示语内容。只拿到数据库或备份文件看不到密钥；把数据库恢复到另一台服务器后，需要在 `/admin/ai` 重新填一次密钥。
 - **家长/老师**在“答题与评分”里：为每道题上传**判分标准 PDF**（学生看不到、也打不开），选择学生回答的来源（**学生输入的回答文字**，或**回答 PDF**，二选一），点“请求 AI 评分”。系统恰好把这三样发给 AI：① 题目 PDF ② 学生回答（文字或 PDF）③ 判分标准 PDF（外加管理员设定的系统提示语；不发学生的账号名等身份信息）。AI 按判分标准返回 **1–5 的整数评分 + 反馈**，显示在这道题下面；**不会自动写入评分**，家长/老师点“采用此评分”再保存。也可以“为所有题目请求 AI 评分”（逐题进行，缺判分标准或缺学生回答的题目跳过）。
 - AI 出错（密钥错误、模型不存在、额度不足、服务忙、超时、拒绝、回答格式不对…）时，会在这道题下面显示可读的错误，不改动任何评分；成功和失败都有记录。每个督导者每小时最多 60 次请求（`AI_MAX_PER_HOUR` 可调），同一道题同时只能有一个请求在进行。
-- **隐私**：这三份材料会从你的服务器发送到 AI 服务商（Anthropic）处理，学生的答题内容和题目文件会离开本服务器。请确认你有权这样处理这些材料（尤其是 College Board 的内容），并已告知学生和家长。服务器必须能出站访问 `api.anthropic.com`（443）。
-- 为保持“没有运行时 npm 依赖”，服务器直接用 Node 自带的 `fetch` 调用 Anthropic 的 Messages API（`anthropic-version: 2026-10-21`，PDF 用 `document` 内容块，用 `output_config.format` 约束返回 `{score, feedback}`），没有安装官方 SDK。
+- **隐私**：这三份材料会从你的服务器发送到你选择的 AI 服务商处理（Claude→Anthropic，GPT→OpenAI，DeepSeek→DeepSeek，自定义→你填的地址；这些服务器多在境外），学生的答题内容和题目文件会离开本服务器。请确认你有权这样处理这些材料（尤其是 College Board 的内容），并已告知学生和家长。服务器必须能出站访问所选服务商的接口（443），例如 `api.anthropic.com`、`api.openai.com`、`api.deepseek.com`。
+- 各服务商都用 Node 自带的 `fetch` 直接调用，没有安装各家 SDK：Claude 用 Messages API（`anthropic-version: 2026-10-21`，PDF 用 `document` 内容块，`output_config.format` 约束返回 `{score, feedback}`）；GPT 用 Chat Completions（PDF 用 `file` 内容块，`response_format` json_schema）；DeepSeek 和自定义服务商用 Chat Completions，返回格式靠提示语约束并容错解析。
+- **PDF 的处理**：Claude、GPT 能直接读 PDF，原样发送；DeepSeek 只能读文字，服务器先用 `unpdf` 提取 PDF 里的文字再发送。**纯扫描图片的 PDF 提取不出文字，会明确提示失败**（建议改用 Claude/GPT，或提供含文字的 PDF）。自定义服务商可勾选“能直接读 PDF”。
+- 自定义服务商的接口地址必须是 https 公网地址（不能指向本机/内网，不能带账号密码）。
 
 ## 时区
 - **每个账号有一个时区**（管理员新建账号时选择，默认温哥华；以后可以修改）。登录后右上角显示“账号名（时区）”，例如 `Nathan（温哥华，-7）`；括号里的数字是当前相对 UTC 的偏移（夏令时会自动变化）。
@@ -97,7 +99,7 @@ npm start                              # 然后访问 http://localhost:3000/
 见 `deploy/DEPLOY.md`（腾讯云轻量服务器 + Caddy + Node.js + systemd）。
 
 ## 运行测试
-需要 Node.js。测试依赖只在开发时用，运行时无依赖。
+需要 Node.js。测试依赖只在开发时用；运行时只依赖 unpdf。
 ```bash
 npm install
 npx playwright install webkit      # 首次需要；Linux 上缺系统库时再运行 npx playwright install-deps webkit

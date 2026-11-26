@@ -14,24 +14,25 @@ const KEY2 = "sk-ant-test-valid-key-0002";
 const BAD_KEY = "sk-ant-test-INVALID-key-9999";
 
 const adminCtx = (playwright, baseURL) => playwright.request.newContext({ baseURL, storageState: state("admin") });
+const prov = (s, id) => s.providers.find((p) => p.id === id);
 const putAi = (admin, data) => admin.put("/api/admin/ai", { headers: H, data });
 const reqs = async (request) => (await request.get(MOCK + "/__requests")).json();
 const resetMock = (request) => request.post(MOCK + "/__reset");
 
 async function configure(admin, extra) {
-  const r = await putAi(admin, Object.assign({ model: "claude-opus-5-5", apiKey: KEY }, extra || {}));
+  const r = await putAi(admin, Object.assign({ provider: "anthropic", model: "claude-opus-5-5", apiKey: KEY }, extra || {}));
   expect(r.status(), await r.text()).toBe(200);
 }
 
 // 督导者 + 学生 + 一场有 n 道题的测试；学生用屏幕输入作答并提交（answerTexts 为每题的回答文字）
-async function scenario(playwright, baseURL, { answerTexts = ["学生的回答"], method = "typed" } = {}) {
+async function scenario(playwright, baseURL, { answerTexts = ["学生的回答"], method = "typed", real = false } = {}) {
   const sup = await makeUser("supervisor", "aisup");
   const stu = await makeUser("student", "aistu");
   linkSupervisor(sup.id, stu.id);
   const sctx = await loginCtx(playwright, baseURL, sup.username);
   const tctx = await loginCtx(playwright, baseURL, stu.username);
   const qs = [];
-  for (let i = 0; i < answerTexts.length; i++) qs.push(await uploadPdf(sctx, `题${i + 1}.pdf`, `QUESTION-PDF-${i + 1}`));
+  for (let i = 0; i < answerTexts.length; i++) qs.push(await uploadPdf(sctx, `题${i + 1}.pdf`, `QUESTION-PDF-${i + 1} Explain the topic in detail please`, { real }));
   const res = await sctx.post("/api/supervisor/assessments", { headers: H, data: { studentIds: [stu.id], scheduledWall: "2031-03-15T15:00", subject: "AP Biology", unit: "Unit 2", unitStartDate: "2031-03-01", questionFileIds: qs.map((q) => q.id) } });
   expect(res.status(), await res.text()).toBe(201);
   const asm = (await res.json()).assessments[0];
@@ -39,7 +40,7 @@ async function scenario(playwright, baseURL, { answerTexts = ["学生的回答"]
   expect(st.status()).toBe(200);
   if (method === "typed") for (let i = 0; i < qs.length; i++) await tctx.put(`/api/student/assessments/${asm.id}/answers/${qs[i].id}`, { headers: H, data: { text: answerTexts[i] } });
   await tctx.post(`/api/student/assessments/${asm.id}/submit`, { headers: H, data: {} });
-  const rubric = await uploadPdf(sctx, "判分标准.pdf", "RUBRIC-PDF-CONTENT");
+  const rubric = await uploadPdf(sctx, "判分标准.pdf", "RUBRIC-PDF-CONTENT award points for key ideas", { real });
   return { sup, stu, sctx, tctx, qs, asm, rubric };
 }
 const aiScore = (s, data, id) => s.sctx.post(`/api/supervisor/assessments/${id || s.asm.id}/ai-score`, { headers: H, data });
@@ -69,10 +70,13 @@ test("权限：未登录 401；学生/督导者/客服 403；管理员可读", a
 test("初始状态：默认模型、没有密钥、默认系统提示语", async ({ playwright, baseURL }) => {
   const admin = await adminCtx(playwright, baseURL);
   const s = await (await admin.get("/api/admin/ai")).json();
-  expect([s.provider, s.model, s.hasKey, s.keyHint, s.isDefaultPrompt]).toEqual(["anthropic", "claude-opus-5-5", false, null, true]);
+  const a0 = prov(s, "anthropic");
+  expect([s.provider, a0.model, a0.hasKey, a0.keyHint, s.isDefaultPrompt]).toEqual(["anthropic", "claude-opus-5-5", false, null, true]);
+  expect(s.providers.map((p) => p.id)).toEqual(["anthropic", "openai", "deepseek", "custom"]);
+  expect(s.providers.map((p) => p.pdfMode)).toEqual(["native", "native", "text", "configurable"]);
   expect(s.systemPrompt).toBe(s.defaultSystemPrompt);
   expect(s.systemPrompt).toContain("判分标准");
-  expect(s.suggestedModels.map((m) => m.id)).toContain("claude-opus-5-5");
+  expect(a0.suggestedModels.map((m) => m.id)).toContain("claude-opus-5-5");
   await admin.dispose();
 });
 
@@ -92,7 +96,8 @@ test("保存模型、密钥、提示语：密钥加密存放，接口和页面�
   const r = await putAi(admin, { model: "claude-sonnet-5-5", apiKey: KEY, systemPrompt: prompt });
   expect(r.status()).toBe(200);
   const s = await r.json();
-  expect([s.model, s.hasKey, s.keyHint, s.isDefaultPrompt, s.systemPrompt]).toEqual(["claude-sonnet-5-5", true, "…0001", false, prompt]);
+  const a1 = prov(s, "anthropic");
+  expect([a1.model, a1.hasKey, a1.keyHint, s.isDefaultPrompt, s.systemPrompt]).toEqual(["claude-sonnet-5-5", true, "…0001", false, prompt]);
   const again = await (await admin.get("/api/admin/ai")).text();
   expect(again).not.toContain(KEY);
   expect(JSON.stringify(s)).not.toContain(KEY);
@@ -106,20 +111,21 @@ test("保存模型、密钥、提示语：密钥加密存放，接口和页面�
   expect(fs.existsSync(config.masterKeyPath)).toBe(true);
   expect(fs.statSync(config.masterKeyPath).mode & 0o777).toBe(0o600);
   // 解密还原
-  expect(require("../server/settings").getAi().apiKey).toBe(KEY);
+  expect(require("../server/settings").getProvider("anthropic").apiKey).toBe(KEY);
   const audit = JSON.stringify(db.prepare("SELECT action, target_name, detail FROM audit_log WHERE action IN ('update_ai_settings','test_ai')").all());
   expect(audit).not.toContain(KEY);
   expect(audit).not.toContain("MY-CUSTOM-PROMPT");
   expect(audit).toContain("model,apiKey,systemPrompt");
+  expect(audit).not.toContain("provider:anthropic");
 
   // 只改模型：密钥保留
   const m = await (await putAi(admin, { model: "claude-opus-5-5" })).json();
-  expect([m.model, m.hasKey, m.keyHint, m.systemPrompt]).toEqual(["claude-opus-5-5", true, "…0001", prompt]);
+  expect([prov(m, "anthropic").model, prov(m, "anthropic").hasKey, prov(m, "anthropic").keyHint, m.systemPrompt]).toEqual(["claude-opus-5-5", true, "…0001", prompt]);
   // 更换密钥
-  expect((await (await putAi(admin, { apiKey: KEY2 })).json()).keyHint).toBe("…0002");
-  expect(require("../server/settings").getAi().apiKey).toBe(KEY2);
+  expect(prov(await (await putAi(admin, { apiKey: KEY2 })).json(), "anthropic").keyHint).toBe("…0002");
+  expect(require("../server/settings").getProvider("anthropic").apiKey).toBe(KEY2);
   // 空密钥字段不会清除已有密钥
-  expect((await (await putAi(admin, { model: "claude-opus-5-5", apiKey: "" })).json()).hasKey).toBe(true);
+  expect(prov(await (await putAi(admin, { model: "claude-opus-5-5", apiKey: "" })).json(), "anthropic").hasKey).toBe(true);
   // 恢复默认提示语：传空字符串，或者与默认相同
   const d = await (await putAi(admin, { systemPrompt: "" })).json();
   expect([d.isDefaultPrompt, d.systemPrompt === d.defaultSystemPrompt]).toEqual([true, true]);
@@ -128,7 +134,7 @@ test("保存模型、密钥、提示语：密钥加密存放，接口和页面�
   expect(d2.isDefaultPrompt).toBe(true);
   // 删除密钥
   const c = await (await putAi(admin, { clearKey: true })).json();
-  expect([c.hasKey, c.keyHint]).toEqual([false, null]);
+  expect([prov(c, "anthropic").hasKey, prov(c, "anthropic").keyHint]).toEqual([false, null]);
   await admin.dispose();
 });
 
@@ -150,7 +156,7 @@ test("连通性测试：成功（用已保存的密钥 / 用刚填但没保存�
   r = await (await test_({ apiKey: KEY2, model: "claude-sonnet-5-5" })).json();
   expect([r.ok, r.usedSavedKey, r.model]).toEqual([true, false, "claude-sonnet-5-5"]);
   expect((await reqs(admin)).pop().key).toBe(KEY2);
-  expect(require("../server/settings").getAi().apiKey).toBe(KEY); // 没有被保存
+  expect(require("../server/settings").getProvider("anthropic").apiKey).toBe(KEY); // 没有被保存
 
   r = await (await test_({ apiKey: BAD_KEY })).json();
   expect([r.ok, r.code]).toEqual([false, "AI_AUTH_FAILED"]);
@@ -167,11 +173,11 @@ test("连通性测试：服务器连不上 AI 服务时给出可读的错误", a
   // 直接用模块验证：把 API 地址指到一个没有服务的端口
   const config = require("../server/config");
   const ai = require("../server/ai");
-  const old = config.aiApiBase;
-  config.aiApiBase = "http://127.0.0.1:9";
+  const old = config.aiBases.anthropic;
+  config.aiBases.anthropic = "http://127.0.0.1:9";
   try {
-    await expect(ai.test({ apiKey: KEY, model: "claude-opus-5-5" })).rejects.toMatchObject({ code: "AI_UNREACHABLE" });
-  } finally { config.aiApiBase = old; }
+    await expect(ai.test({ provider: "anthropic", apiKey: KEY, model: "claude-opus-5-5" })).rejects.toMatchObject({ code: "AI_UNREACHABLE" });
+  } finally { config.aiBases.anthropic = old; }
 });
 
 /* ================= 家长/老师：提交给 AI 判分 ================= */
@@ -472,7 +478,7 @@ test("管理页：AI 评分设置——保存、连通性测试、密钥不回�
   await expect(page).toHaveURL(/\/admin\/ai$/);
   await expect(page.locator("h1")).toHaveText("AI 评分设置");
   await expect(page.locator(".nav-link[aria-current=page]")).toHaveText("AI 评分设置");
-  await expect(page.locator(".notice")).toContainText("发送到 AI 服务商");
+  await expect(page.locator(".notice")).toContainText("你选择的 AI 服务商");
   await expect(page.locator("#ai-model")).toHaveValue("claude-opus-5-5");
   await expect(page.locator("#key-hint")).toContainText("还没有保存密钥");
   await expect(page.locator("#clear-key-btn")).toBeHidden();
@@ -649,7 +655,7 @@ test("督导者页：AI 出错时在这道题下面显示错误（不影响其�
   await row.locator("input[type=file][aria-label*='回答 PDF']").setInputFiles({ name: "回答.pdf", mimeType: "application/pdf", buffer: pdf("HTTP500 ANSWER") });
   await expect(row.getByLabel("回答 PDF", { exact: true })).toBeChecked();
   await row.getByRole("button", { name: "请求 AI 评分：Q1" }).click();
-  await expect(row.locator(".ai-status")).toContainText("AI 服务暂时不可用");
+  await expect(row.locator(".ai-status")).toContainText("暂时不可用");
   await expect(row.locator(".ai-status")).toHaveClass(/bad/);
   await expect(row.locator(".ai-score")).toHaveCount(0);
   // 换一个回答 PDF 后成功
@@ -695,4 +701,227 @@ test("截图归档：管理员 AI 设置页、督导者的 AI 评分（供人工
   await expect(page.locator("#ai-all-msg")).toContainText("完成：2 / 2", { timeout: 30000 });
   await page.screenshot({ path: require("path").join(dir, "supervisor-ai.png") });
   await admin.dispose();
+});
+
+
+/* ================= 多服务商：GPT / DeepSeek / 自定义 ================= */
+
+const OKEY = "sk-openai-test-key-0001", DKEY = "sk-deepseek-test-key-0001", CKEY = "custom-test-key-0001";
+const CBASE = MOCK + "/custom/v1";
+const score = (s, data) => aiScore(s, Object.assign({ questionFileId: s.qs[0].id, answerSource: "text", rubricFileId: s.rubric.id }, data || {}));
+
+test("切换服务商：各服务商的模型和密钥分别保存；保存后选中的服务商成为判分服务商；删除密钥只影响当前服务商", async ({ playwright, baseURL }) => {
+  const admin = await adminCtx(playwright, baseURL);
+  await configure(admin);
+  let s = await (await putAi(admin, { provider: "openai", model: "gpt-4.1", apiKey: OKEY })).json();
+  expect(s.provider).toBe("openai");
+  expect([prov(s, "openai").keyHint, prov(s, "openai").pdfNative, prov(s, "openai").host]).toEqual(["…0001", true, "127.0.0.1:8766"]);
+  expect(prov(s, "anthropic").hasKey).toBe(true); // 另一家的密钥还在
+  s = await (await putAi(admin, { provider: "deepseek", model: "deepseek-chat", apiKey: DKEY })).json();
+  expect([s.provider, prov(s, "deepseek").pdfNative, prov(s, "deepseek").pdfMode]).toEqual(["deepseek", false, "text"]);
+  expect(JSON.stringify(s)).not.toContain(OKEY);
+  expect(JSON.stringify(s)).not.toContain(DKEY);
+  const { db } = require("../server/db");
+  for (const k of ["ai_api_key:openai", "ai_api_key:deepseek"]) expect(db.prepare("SELECT value FROM settings WHERE key = ?").get(k).value.startsWith("v1:")).toBe(true);
+  // 删除 deepseek 的密钥，不影响 openai
+  s = await (await putAi(admin, { provider: "deepseek", clearKey: true })).json();
+  expect([prov(s, "deepseek").hasKey, prov(s, "openai").hasKey]).toEqual([false, true]);
+  // 非法服务商
+  expect((await putAi(admin, { provider: "gemini", model: "x-model" })).status()).toBe(422);
+  expect((await putAi(admin, { provider: 5 })).status()).toBe(422);
+  await configure(admin); // 回到 anthropic
+  expect((await (await admin.get("/api/admin/ai")).json()).provider).toBe("anthropic");
+  await admin.dispose();
+});
+
+test("OpenAI（GPT）：用 Bearer 密钥调用 chat/completions；PDF 以 file 块原样发送；用 json_schema；max_completion_tokens", async ({ playwright, baseURL }) => {
+  const admin = await adminCtx(playwright, baseURL);
+  await putAi(admin, { provider: "openai", model: "gpt-4.1", apiKey: OKEY, systemPrompt: "" });
+  const t = await (await admin.post("/api/admin/ai/test", { headers: H, data: { provider: "openai" } })).json();
+  expect([t.ok, t.provider, t.reply]).toEqual([true, "openai", "OK"]);
+  const s = await scenario(playwright, baseURL, { answerTexts: ["回答 SCORE=5"] });
+  await resetMock(admin);
+  const r = await score(s);
+  expect(r.status(), await r.text()).toBe(200);
+  expect((await r.json()).result).toMatchObject({ score: 5, source: "text", model: "gpt-4.1" });
+  const [seen] = await reqs(admin);
+  expect([seen.path, seen.auth, seen.model, seen.maxCompletionTokens, seen.maxTokens]).toEqual(["/openai/v1/chat/completions", "Bearer " + OKEY, "gpt-4.1", 16000, undefined]);
+  expect(seen.responseFormat.type).toBe("json_schema");
+  expect(seen.system).toBe(require("../server/settings").DEFAULT_SYSTEM_PROMPT);
+  const files = seen.blocks.filter((b) => b.type === "file");
+  expect(files.map((f) => f.filename)).toEqual(["question.pdf", "rubric.pdf"]);
+  expect(files.every((f) => f.prefix === "data:application/pdf;base64," && f.head === "%PDF-")).toBe(true);
+  expect(seen.blocks.some((b) => b.type === "text" && b.text === "<student_answer>\n回答 SCORE=5\n</student_answer>")).toBe(true);
+  expect(JSON.stringify(seen)).not.toContain(s.stu.username);
+  const { db } = require("../server/db");
+  expect(db.prepare("SELECT provider FROM ai_grades WHERE assessment_id = ?").get(s.asm.id).provider).toBe("openai");
+
+  // 回答 PDF：3 个 file 块
+  const ans = await uploadPdf(s.sctx, "a.pdf", "ANSWER-PDF SCORE=2");
+  await resetMock(admin);
+  const r2 = await score(s, { answerSource: "pdf", answerFileId: ans.id });
+  expect((await r2.json()).result.score).toBe(2);
+  expect((await reqs(admin))[0].blocks.filter((b) => b.type === "file").map((f) => f.filename)).toEqual(["question.pdf", "answer.pdf", "rubric.pdf"]);
+  // 密钥错误 / 余额
+  await putAi(admin, { provider: "openai", apiKey: "sk-openai-wrong-key-9999" });
+  const bad = await score(s);
+  expect([bad.status(), (await bad.json()).error]).toEqual([502, "AI_AUTH_FAILED"]);
+  // 模型不支持 json_schema：去掉后重试
+  await putAi(admin, { provider: "openai", apiKey: OKEY, model: "model-no-schema" });
+  await resetMock(admin);
+  const s2 = await scenario(playwright, baseURL, { answerTexts: ["SCORE=4"] });
+  const r3 = await score(s2);
+  expect((await r3.json()).result.score).toBe(4);
+  expect((await reqs(admin)).map((x) => x.hasResponseFormat)).toEqual([true, false]);
+  await configure(admin);
+  await admin.dispose();
+});
+
+test("DeepSeek：PDF 在服务器上提取文字后以纯文字发送（没有 file 块、没有 response_format）；max_tokens 不超过 8000", async ({ playwright, baseURL }) => {
+  const admin = await adminCtx(playwright, baseURL);
+  await putAi(admin, { provider: "deepseek", model: "deepseek-chat", apiKey: DKEY, systemPrompt: "" });
+  const t = await (await admin.post("/api/admin/ai/test", { headers: H, data: { provider: "deepseek" } })).json();
+  expect([t.ok, t.provider]).toEqual([true, "deepseek"]);
+  const s = await scenario(playwright, baseURL, { answerTexts: ["我的回答 SCORE=4"], real: true });
+  await resetMock(admin);
+  const r = await score(s);
+  expect(r.status(), await r.text()).toBe(200);
+  expect((await r.json()).result).toMatchObject({ score: 4, model: "deepseek-chat" });
+  const [seen] = await reqs(admin);
+  expect([seen.path, seen.auth, seen.maxTokens, seen.hasResponseFormat, seen.maxCompletionTokens]).toEqual(["/deepseek/chat/completions", "Bearer " + DKEY, 8000, false, undefined]);
+  expect(seen.plain).toBe(true);
+  expect(seen.blocks.some((b) => b.type === "file")).toBe(false);
+  const text = seen.blocks[0].text;
+  expect(text).toContain("QUESTION-PDF-1 Explain the topic in detail please");
+  expect(text).toContain("RUBRIC-PDF-CONTENT award points for key ideas");
+  expect(text).toContain("<student_answer>\n我的回答 SCORE=4\n</student_answer>");
+  expect(seen.system).toContain("只输出一个 JSON 对象");
+  expect(seen.system).toContain("判分标准");
+
+  // 回答 PDF（带文字）：提取后放进 <student_answer>
+  const ans = await uploadPdf(s.sctx, "a.pdf", "Answer from pdf SCORE=5", { real: true });
+  await resetMock(admin);
+  const r2 = await score(s, { answerSource: "pdf", answerFileId: ans.id });
+  expect((await r2.json()).result.score).toBe(5);
+  expect((await reqs(admin))[0].blocks[0].text).toContain("<student_answer>\nAnswer from pdf SCORE=5\n</student_answer>");
+
+  // 扫描件/没有文字的 PDF：明确失败，不发请求给 AI
+  const scanned = await uploadPdf(s.sctx, "scan.pdf", " ", { real: true });
+  await resetMock(admin);
+  const r3 = await score(s, { answerSource: "pdf", answerFileId: scanned.id });
+  const b3 = await r3.json();
+  expect([r3.status(), b3.error]).toEqual([422, "AI_PDF_NO_TEXT"]);
+  expect(b3.message).toContain("回答 PDF");
+  expect(b3.message).toContain("Claude");
+  expect(await reqs(admin)).toHaveLength(0);
+  // 损坏的 PDF
+  const { db } = require("../server/db");
+  const rows = db.prepare("SELECT status, error_code, provider FROM ai_grades WHERE assessment_id = ? ORDER BY id").all(s.asm.id);
+  expect(rows.map((x) => [x.status, x.error_code, x.provider])).toEqual([["ok", null, "deepseek"], ["ok", null, "deepseek"], ["error", "AI_PDF_NO_TEXT", "deepseek"]]);
+  // 返回的错误（HTTP 402 余额不足）
+  const s3 = await scenario(playwright, baseURL, { answerTexts: ["HTTP402"], real: true });
+  const r4 = await score(s3);
+  expect([r4.status(), (await r4.json()).error]).toEqual([502, "AI_PAYMENT"]);
+  // 题目文件无法读取（不是有效的 PDF 结构）
+  const s4 = await scenario(playwright, baseURL, { answerTexts: ["x"], real: false });
+  const r5 = await score(s4);
+  const b5 = await r5.json();
+  expect([r5.status(), b5.error]).toEqual([422, "AI_PDF_UNREADABLE"]);
+  expect(b5.message).toContain("题目 PDF");
+  await configure(admin);
+  await admin.dispose();
+});
+
+test("提取文字的单元：损坏的 PDF、文字过长；各种出错情形（OpenAI 兼容）", async () => {
+  const ai = require("../server/ai");
+  const { textPdf } = require("./helpers");
+  await expect(ai.extractPdfText(Buffer.from("not a pdf at all"), "回答 PDF")).rejects.toMatchObject({ code: "AI_PDF_UNREADABLE" });
+  await expect(ai.extractPdfText(textPdf("Hello world this is long enough text"), "题目 PDF")).resolves.toContain("Hello world");
+  await expect(ai.extractPdfText(textPdf("ab"), "题目 PDF")).rejects.toMatchObject({ code: "AI_PDF_NO_TEXT" });
+});
+
+test("自定义（OpenAI 兼容）服务商：必须有接口地址；勾选“能直接读 PDF”前后发送方式不同；地址有校验", async ({ playwright, baseURL }) => {
+  const admin = await adminCtx(playwright, baseURL);
+  expect((await putAi(admin, { provider: "custom", model: "my-model", apiKey: CKEY, baseUrl: "ftp://x.example.com" })).status()).toBe(422);
+  expect((await putAi(admin, { provider: "custom", model: "my-model", apiKey: CKEY, baseUrl: "not a url" })).status()).toBe(422);
+  expect((await putAi(admin, { provider: "custom", model: "my-model", apiKey: CKEY, baseUrl: "https://user:pw@example.com/v1" })).status()).toBe(422);
+  // 没有填地址就测试
+  expect((await admin.post("/api/admin/ai/test", { headers: H, data: { provider: "custom", model: "my-model", apiKey: CKEY } })).status()).toBe(422);
+  let s = await (await putAi(admin, { provider: "custom", model: "my-model", apiKey: CKEY, baseUrl: CBASE + "/", pdfNative: false, systemPrompt: "" })).json();
+  expect([s.provider, prov(s, "custom").baseUrl, prov(s, "custom").pdfNative]).toEqual(["custom", CBASE, false]);
+  const t = await (await admin.post("/api/admin/ai/test", { headers: H, data: { provider: "custom" } })).json();
+  expect([t.ok, t.provider]).toEqual([true, "custom"]);
+
+  // 不勾选：提取文字
+  let sc = await scenario(playwright, baseURL, { answerTexts: ["SCORE=2"], real: true });
+  await resetMock(admin);
+  expect((await (await score(sc)).json()).result.score).toBe(2);
+  let [seen] = await reqs(admin);
+  expect([seen.path, seen.auth, seen.plain, seen.maxTokens]).toEqual(["/custom/v1/chat/completions", "Bearer " + CKEY, true, 16000]);
+  // 勾选：直接发 PDF
+  s = await (await putAi(admin, { provider: "custom", pdfNative: true })).json();
+  expect(prov(s, "custom").pdfNative).toBe(true);
+  sc = await scenario(playwright, baseURL, { answerTexts: ["SCORE=3"] });
+  await resetMock(admin);
+  expect((await (await score(sc)).json()).result.score).toBe(3);
+  [seen] = await reqs(admin);
+  expect(seen.blocks.filter((b) => b.type === "file")).toHaveLength(2);
+  // pdfNative 只对“自定义”有效：对其他服务商被忽略
+  await putAi(admin, { provider: "deepseek", model: "deepseek-chat", apiKey: DKEY, pdfNative: true });
+  expect(prov(await (await admin.get("/api/admin/ai")).json(), "deepseek").pdfNative).toBe(false);
+  await configure(admin);
+  await admin.dispose();
+});
+
+test("自定义地址的安全检查（validateBaseUrl）：生产环境只允许 https 公网地址", async () => {
+  const ai = require("../server/ai");
+  const ok = (u) => ai.validateBaseUrl(u, { allowPrivate: false });
+  expect(ok("https://api.example.com/v1/")).toBe("https://api.example.com/v1");
+  expect(ok(" https://dashscope.aliyuncs.com/compatible-mode/v1 ")).toBe("https://dashscope.aliyuncs.com/compatible-mode/v1");
+  for (const bad of ["http://api.example.com/v1", "https://localhost/v1", "https://127.0.0.1/v1", "https://10.0.0.5/v1", "https://192.168.1.1/v1", "https://172.16.0.1/v1", "https://169.254.169.254/latest", "https://[::1]/v1", "https://intranet/v1", "https://svc.internal/v1", "https://a.local/v1", "https://u:p@api.example.com/v1", "https://api.example.com/v1?x=1", "https://api.example.com/v1#a", "ftp://api.example.com", "", "   ", "x".repeat(301), null, 5])
+    expect(() => ok(bad), String(bad)).toThrow(/接口地址/);
+  expect(ai.validateBaseUrl("http://127.0.0.1:8766/custom/v1", { allowPrivate: true })).toBe("http://127.0.0.1:8766/custom/v1"); // 测试环境放行
+});
+
+test("管理页面：切换服务商会换成各自的模型/密钥/说明；自定义显示接口地址和“能直接读 PDF”", async ({ page, playwright, baseURL }) => {
+  const admin = await adminCtx(playwright, baseURL);
+  await configure(admin);
+  await admin.dispose();
+  await loginAs(page, "e2e_admin");
+  await page.goto("/admin/ai");
+  const sel = page.locator("#ai-provider");
+  await expect(sel.locator("option")).toHaveText(["Anthropic（Claude）", "OpenAI（GPT）", "DeepSeek", "自定义（OpenAI 兼容）"]);
+  await expect(page.locator("#base-field")).toBeHidden();
+  await sel.selectOption("deepseek");
+  await expect(page.locator("#ai-model")).toHaveValue("deepseek-chat");
+  await expect(page.locator("#pdf-note")).toContainText("只能读文字");
+  await expect(page.locator("#provider-hint")).toContainText("保存后将改用它判分");
+  await sel.selectOption("openai");
+  await expect(page.locator("#pdf-note")).toContainText("直接读取 PDF");
+  await sel.selectOption("custom");
+  await expect(page.locator("#base-field")).toBeVisible();
+  await expect(page.locator("#pdf-field")).toBeVisible();
+  await page.fill("#ai-base", "ftp://bad");
+  await page.fill("#ai-model", "my-model");
+  await page.fill("#ai-key", CKEY);
+  await page.click("#save-btn");
+  await expect(page.locator("#save-msg")).toContainText("接口地址");
+  await page.fill("#ai-base", CBASE);
+  await page.check("#ai-pdf-native");
+  await page.click("#test-btn");
+  await expect(page.locator("#test-result")).toContainText("连通成功");
+  await page.click("#save-btn");
+  await expect(page.locator("#save-msg")).toHaveText("已保存。");
+  await expect(page.locator("#provider-hint")).toContainText("当前使用的服务商");
+  await expect(page.locator("#key-hint")).toContainText("…0001");
+  await page.reload();
+  await expect(sel).toHaveValue("custom");
+  await expect(page.locator("#ai-base")).toHaveValue(CBASE);
+  await expect(page.locator("#ai-pdf-native")).toBeChecked();
+  const axe = await new AxeBuilder({ page }).analyze();
+  expect(axe.violations.map((v) => v.id)).toEqual([]);
+  await page.selectOption("#ai-provider", "anthropic");
+  await page.fill("#ai-key", KEY);
+  await page.click("#save-btn");
+  await expect(page.locator("#save-msg")).toHaveText("已保存。");
 });

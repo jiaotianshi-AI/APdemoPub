@@ -27,27 +27,43 @@
   <main class="admin ai-settings">
     <h1>AI 评分设置</h1>
     <p class="muted">家长/老师在评分时可以把一道题交给 AI 判分：系统把<strong>题目 PDF</strong>、<strong>学生的回答（文字或回答 PDF，二选一）</strong>和<strong>判分标准 PDF</strong>这三样发给下面设定的 AI，AI 按判分标准给出 1–5 的评分和反馈，返回给家长/老师参考，由家长/老师决定是否采用。</p>
-    <p class="notice" role="note">隐私提醒：这三份材料会从服务器发送到 AI 服务商（Anthropic）处理，不包含学生的账号名等身份信息，但学生的答题内容和题目文件会离开本服务器。请确认你有权这样处理这些材料，并已告知学生和家长。</p>
+    <p class="notice" role="note">隐私提醒：这三份材料会从服务器发送到你选择的 AI 服务商处理（Claude 发往 Anthropic，GPT 发往 OpenAI，DeepSeek 发往 DeepSeek，自定义则发往你填写的地址；这些服务商的服务器多在境外），不包含学生的账号名等身份信息，但学生的答题内容和题目文件会离开本服务器。请确认你有权这样处理这些材料，并已告知学生和家长。</p>
 
     <form id="ai-form" novalidate>
       <section class="panel-block" aria-labelledby="model-title">
-        <h2 id="model-title">1. 模型与 API 密钥</h2>
+        <h2 id="model-title">1. 服务商、模型与 API 密钥</h2>
+        <div class="field">
+          <label for="ai-provider">AI 服务商</label>
+          <select id="ai-provider"></select>
+          <span class="hint" id="provider-hint"></span>
+        </div>
+        <div class="field" id="base-field" hidden>
+          <label for="ai-base">接口地址</label>
+          <input id="ai-base" type="text" autocomplete="off" spellcheck="false" maxlength="300" placeholder="https://api.example.com/v1">
+          <span class="hint">任何“OpenAI 兼容”的服务都可以（如通义千问、Kimi、智谱等）。必须是 https 公网地址，系统会在它后面加上 /chat/completions。</span>
+        </div>
+        <div class="field" id="pdf-field" hidden>
+          <label><input id="ai-pdf-native" type="checkbox"> 这个模型能直接读取 PDF</label>
+          <span class="hint">不勾选时，系统会先在服务器上把 PDF 里的文字提取出来再发给模型（扫描图片的 PDF 提取不出文字，会提示失败）。</span>
+        </div>
         <div class="field">
           <label for="ai-model">判分用的 AI 模型</label>
           <input id="ai-model" type="text" list="model-list" autocomplete="off" spellcheck="false" maxlength="100">
           <datalist id="model-list"></datalist>
-          <span class="hint" id="model-hint">服务商：Anthropic（Claude）。可以从列表里选，也可以直接输入模型名称。</span>
+          <span class="hint" id="model-hint">可以从列表里选，也可以直接输入模型名称。</span>
         </div>
         <div class="field">
           <label for="ai-key">API 密钥</label>
           <input id="ai-key" type="password" autocomplete="new-password" spellcheck="false" maxlength="500" placeholder="">
           <span class="hint" id="key-hint"></span>
         </div>
+        <p class="hint" id="pdf-note"></p>
         <div class="row-actions">
           <button type="button" class="btn" id="test-btn">测试连通性</button>
           <button type="button" class="btn danger" id="clear-key-btn" hidden>删除已保存的密钥</button>
         </div>
         <p id="test-result" class="msg" role="status" hidden></p>
+        <p class="hint">每个服务商的模型和密钥各自保存；点“保存设置”后，当前选中的服务商就是判分时使用的服务商。</p>
       </section>
 
       <section class="panel-block" aria-labelledby="prompt-title">

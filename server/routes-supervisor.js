@@ -373,8 +373,11 @@ async function requestAiScore(req, res, ctx, idText) {
     if (input.answerFile.id === rubric.id) throw httpError(422, 'SAME_FILE', '回答 PDF 和判分标准不能是同一个文件。');
   }
 
-  const cfg = settings.getAi();
-  if (!cfg.apiKey) throw httpError(409, 'AI_NOT_CONFIGURED', 'AI 评分还没有配置：请管理员在“AI 评分设置”里填写模型和 API 密钥。');
+  const provider = settings.activeProvider();
+  const pc = settings.getProvider(provider);
+  const def = ai.PROVIDERS[provider];
+  const cfg = { provider, model: pc.model || def.defaultModel, apiKey: pc.apiKey, baseUrl: pc.baseUrl, pdfNative: pc.pdfNative, systemPrompt: settings.getPrompt().systemPrompt };
+  if (!cfg.apiKey || !cfg.model || (provider === 'custom' && !cfg.baseUrl)) throw httpError(409, 'AI_NOT_CONFIGURED', 'AI 评分还没有配置：请管理员在“AI 评分设置”里选择服务商并填写模型和 API 密钥。');
   const since = new Date(Date.now() - 3600 * 1000).toISOString();
   if (db.prepare('SELECT COUNT(*) AS n FROM ai_grades WHERE requested_by = ? AND created_at > ?').get(ctx.account.id, since).n >= config.aiMaxPerHour) {
     throw httpError(429, 'AI_RATE_LIMIT', `一小时内最多请求 ${config.aiMaxPerHour} 次 AI 评分，请稍后再试。`);
@@ -386,18 +389,18 @@ async function requestAiScore(req, res, ctx, idText) {
   try {
     let result;
     try {
-      result = await ai.grade({ apiKey: cfg.apiKey, model: cfg.model, systemPrompt: cfg.systemPrompt }, input);
+      result = await ai.grade(cfg, input);
     } catch (e) {
       const code = e && e.code ? e.code : 'AI_ERROR';
       const message = e instanceof ai.AiError ? e.message : 'AI 评分出错了，请稍后再试。';
-      db.prepare('INSERT INTO ai_grades (assessment_id, question_file_id, requested_by, source, status, model, error_code, error_message, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(a.id, qid, ctx.account.id, body.answerSource, 'error', cfg.model, code, message.slice(0, 500), now());
+      db.prepare('INSERT INTO ai_grades (assessment_id, question_file_id, requested_by, source, status, model, provider, error_code, error_message, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(a.id, qid, ctx.account.id, body.answerSource, 'error', cfg.model, provider, code, message.slice(0, 500), now());
       audit(ctx.account.username, 'ai_score_failed', String(a.id), code);
       throw httpError(e instanceof ai.AiError ? e.status : 502, code, message);
     }
     const at = now();
-    db.prepare('INSERT INTO ai_grades (assessment_id, question_file_id, requested_by, source, status, score, feedback, model, input_tokens, output_tokens, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(a.id, qid, ctx.account.id, body.answerSource, 'ok', result.score, result.feedback, result.model, result.inputTokens || null, result.outputTokens || null, at);
+    db.prepare('INSERT INTO ai_grades (assessment_id, question_file_id, requested_by, source, status, score, feedback, model, provider, input_tokens, output_tokens, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(a.id, qid, ctx.account.id, body.answerSource, 'ok', result.score, result.feedback, result.model, provider, result.inputTokens || null, result.outputTokens || null, at);
     audit(ctx.account.username, 'ai_score', String(a.id), `Q${qrow.no} ${body.answerSource} → ${result.score}`);
     sendJson(res, 200, { result: { questionFileId: qid, score: result.score, feedback: result.feedback, model: result.model, source: body.answerSource, createdAt: at } });
   } finally { aiBusy.delete(key); }

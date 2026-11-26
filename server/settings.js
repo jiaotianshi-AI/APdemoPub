@@ -1,15 +1,7 @@
 'use strict';
-// 系统设置（键值）。AI 判分相关：模型、加密后的 API 密钥、判分系统提示语。
+// 系统设置（键值）。AI 判分相关：服务商、各服务商的模型/加密后的 API 密钥、自定义服务商的地址、判分系统提示语。
 const { db } = require('./db');
 const secrets = require('./secrets');
-
-const DEFAULT_MODEL = 'claude-opus-5-5';
-const SUGGESTED_MODELS = [
-  { id: 'claude-opus-5-5', note: '推荐：判分准确度高' },
-  { id: 'claude-sonnet-5-5', note: '更快、更便宜' },
-  { id: 'claude-haiku-5-5', note: '最便宜，适合简单题目' },
-  { id: 'claude-fable-5-2', note: '能力最强，价格也最高' }
-];
 
 const DEFAULT_SYSTEM_PROMPT = `你是一位严格、公正的 AP 阅卷老师。
 
@@ -26,9 +18,13 @@ const DEFAULT_SYSTEM_PROMPT = `你是一位严格、公正的 AP 阅卷老师。
 
 反馈用中文，简明地写出：得分点、失分点、改进建议。`;
 
+// 服务商：anthropic 沿用最初的存储键（ai_model / ai_api_key），其他的带上服务商名
+const PROVIDER_IDS = ['anthropic', 'openai', 'deepseek', 'custom'];
+const modelKey = (p) => (p === 'anthropic' ? 'ai_model' : `ai_model:${p}`);
+const keyKey = (p) => (p === 'anthropic' ? 'ai_api_key' : `ai_api_key:${p}`);
+
 function get(key) {
-  const r = db.prepare('SELECT value, updated_at, updated_by FROM settings WHERE key = ?').get(key);
-  return r || null;
+  return db.prepare('SELECT value, updated_at, updated_by FROM settings WHERE key = ?').get(key) || null;
 }
 function set(key, value, by) {
   db.prepare(`INSERT INTO settings (key, value, updated_at, updated_by) VALUES (?, ?, ?, ?)
@@ -37,26 +33,42 @@ function set(key, value, by) {
 }
 function remove(key) { db.prepare('DELETE FROM settings WHERE key = ?').run(key); }
 
-// 取 AI 设置。apiKey 是解密后的明文，只在服务器内部使用，绝不返回给页面。
-function getAi() {
-  const model = get('ai_model');
-  const key = get('ai_api_key');
-  const prompt = get('ai_system_prompt');
+function activeProvider() {
+  const r = get('ai_provider');
+  return r && PROVIDER_IDS.includes(r.value) ? r.value : 'anthropic';
+}
+
+// 某个服务商的已保存配置。apiKey 是解密后的明文，只在服务器内部使用，绝不返回给页面。
+function getProvider(p) {
+  const m = get(modelKey(p));
+  const k = get(keyKey(p));
   let apiKey = null;
-  if (key) { try { apiKey = secrets.decrypt(key.value); } catch (e) { apiKey = null; } }
-  return {
-    model: model ? model.value : DEFAULT_MODEL,
-    apiKey,
-    systemPrompt: prompt ? prompt.value : DEFAULT_SYSTEM_PROMPT,
-    customPrompt: !!prompt,
-    updatedAt: [model, key, prompt].filter(Boolean).map((r) => r.updated_at).sort().pop() || null
-  };
-}
-function setApiKey(plain, by) { set('ai_api_key', secrets.encrypt(plain), by); }
-
-function keyHint(apiKey) {
-  if (!apiKey) return null;
-  return '…' + apiKey.slice(-4);
+  if (k) { try { apiKey = secrets.decrypt(k.value); } catch (e) { apiKey = null; } }
+  const base = get('ai_base_url:' + p);
+  const pdf = get('ai_pdf_native:' + p);
+  return { model: m ? m.value : null, apiKey, baseUrl: base ? base.value : '', pdfNative: pdf ? pdf.value === '1' : false };
 }
 
-module.exports = { DEFAULT_MODEL, SUGGESTED_MODELS, DEFAULT_SYSTEM_PROMPT, get, set, remove, getAi, setApiKey, keyHint };
+function setProviderModel(p, model, by) { set(modelKey(p), model, by); }
+function setProviderKey(p, plain, by) { set(keyKey(p), secrets.encrypt(plain), by); }
+function clearProviderKey(p) { remove(keyKey(p)); }
+function setProviderBase(p, url, by) { set('ai_base_url:' + p, url, by); }
+function setProviderPdfNative(p, on, by) { set('ai_pdf_native:' + p, on ? '1' : '0', by); }
+function setActiveProvider(p, by) { set('ai_provider', p, by); }
+
+function getPrompt() {
+  const prompt = get('ai_system_prompt');
+  return { systemPrompt: prompt ? prompt.value : DEFAULT_SYSTEM_PROMPT, customPrompt: !!prompt };
+}
+
+function lastUpdated() {
+  const r = db.prepare("SELECT MAX(updated_at) AS t FROM settings WHERE key LIKE 'ai\\_%' ESCAPE '\\'").get();
+  return r ? r.t : null;
+}
+
+function keyHint(apiKey) { return apiKey ? '…' + apiKey.slice(-4) : null; }
+
+module.exports = {
+  DEFAULT_SYSTEM_PROMPT, PROVIDER_IDS, get, set, remove, activeProvider, getProvider, getPrompt, lastUpdated, keyHint,
+  setProviderModel, setProviderKey, clearProviderKey, setProviderBase, setProviderPdfNative, setActiveProvider
+};

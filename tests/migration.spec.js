@@ -62,7 +62,7 @@ test("旧数据库升级：测试记录、文件关联、重测关系完整保�
     console.log(JSON.stringify(out));`;
   const run = () => JSON.parse(execFileSync(process.execPath, ["--disable-warning=ExperimentalWarning", "-e", check], { env: { ...process.env, APDEMO_DB: dbPath } }).toString().trim().split("\n").pop());
   const out = run();
-  expect(out.version).toBe(5);
+  expect(out.version).toBe(6);
   expect(out.rows).toEqual([
     { id: 1, unit: "Unit 2", status: "graded", score: 4, attempt_no: 1, retake_of: null, duration_minutes: 60 },
     { id: 2, unit: "Unit 2", status: "scheduled", score: null, attempt_no: 2, retake_of: 1, duration_minutes: 60 }

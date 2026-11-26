@@ -197,7 +197,10 @@ CREATE TABLE IF NOT EXISTS audit_log (
 if (!db.prepare('PRAGMA table_info(accounts)').all().some((c) => c.name === 'timezone')) {
   db.exec("ALTER TABLE accounts ADD COLUMN timezone TEXT NOT NULL DEFAULT 'America/Vancouver'");
 }
-if (startVersion < 5) db.exec('PRAGMA user_version = 5'); // 4 = 账号时区；5 = AI 判分（设置、判分标准、判分记录，只新增表）
+if (!db.prepare('PRAGMA table_info(ai_grades)').all().some((c) => c.name === 'provider')) {
+  db.exec('ALTER TABLE ai_grades ADD COLUMN provider TEXT'); // 6 = AI 服务商（Anthropic / OpenAI / DeepSeek / 自定义）
+}
+if (startVersion < 6) db.exec('PRAGMA user_version = 6'); // 4 = 账号时区；5 = AI 判分（设置、判分标准、判分记录）；6 = AI 服务商
  // 2 = 加入每题回答 PDF 与评分；3 = 加入每题权重（都只是新增表，不改旧数据）
 
 // 事务辅助：fn 抛异常则回滚

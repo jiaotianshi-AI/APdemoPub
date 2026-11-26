@@ -13,6 +13,10 @@ for item in server pages assets data deploy; do
   rsync -a --delete "$REPO/$item/" "$APP_DIR/$item/"
 done
 install -m 644 "$REPO/index.html" "$APP_DIR/index.html"
+# 运行时依赖（目前只有 unpdf：把 PDF 里的文字提取出来，给 DeepSeek 等只能读文字的 AI 模型用）
+install -m 644 "$REPO/package.json" "$APP_DIR/package.json"
+install -m 644 "$REPO/package-lock.json" "$APP_DIR/package-lock.json"
+(cd "$APP_DIR" && npm ci --omit=dev --no-audit --no-fund --loglevel=error)
 chown -R root:root "$APP_DIR"
 chmod -R go-w "$APP_DIR"
 

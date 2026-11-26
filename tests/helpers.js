@@ -30,10 +30,24 @@ async function loginCtx(playwright, baseURL, username) {
 }
 // 最小的 PDF（只需要以 %PDF- 开头；内容不同便于区分）
 const pdf = (text) => Buffer.from(`%PDF-1.4\n% ${text}\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n`);
-async function uploadPdf(ctx, name, text) {
+// 带真实文字的最小 PDF（Helvetica 单页），用于 DeepSeek 等“只能读文字”的模式（服务器会用 unpdf 提取文字）
+function textPdf(text) {
+  const esc = String(text).replace(/[\\()]/g, "\\$&");
+  const stream = `BT /F1 12 Tf 50 700 Td (${esc}) Tj ET`;
+  const objs = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+    `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"];
+  let out = "%PDF-1.4\n"; const offs = [];
+  objs.forEach((o, i) => { offs.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+  const xref = out.length;
+  out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n` + offs.map((o) => String(o).padStart(10, "0") + " 00000 n \n").join("");
+  out += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(out, "latin1");
+}
+async function uploadPdf(ctx, name, text, opts) {
   const res = await ctx.post("/api/supervisor/files", {
     headers: { ...H, "Content-Type": "application/pdf", "X-File-Name": encodeURIComponent(name) },
-    data: pdf(text || name)
+    data: opts && opts.real ? textPdf(text || name) : pdf(text || name)
   });
   if (res.status() !== 201) throw new Error("上传失败 " + res.status() + " " + (await res.text()));
   return (await res.json()).file;
@@ -43,4 +57,4 @@ async function gradeAll(ctx, assessment, scores, extra) {
   const questions = assessment.questionFiles.map((q, i) => ({ questionFileId: q.id, score: scores[i], ...(extra && extra[i] ? extra[i] : {}) }));
   return ctx.patch(`/api/supervisor/assessments/${assessment.id}`, { headers: H, data: { questions } });
 }
-module.exports = Object.assign(module.exports, { makeUser, linkSupervisor, loginCtx, pdf, uploadPdf, gradeAll });
+module.exports = Object.assign(module.exports, { makeUser, linkSupervisor, loginCtx, pdf, textPdf, uploadPdf, gradeAll });

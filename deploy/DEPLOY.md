@@ -65,3 +65,14 @@ cd ~/APdemoPub && git pull && sudo bash deploy/update.sh
 - 备份文件含账号信息，请勿上传到公开的地方。
 - 本脚本和配置里没有任何密码、密钥或账号信息。
 - 这些脚本我没有在真实服务器上完整运行过（本地验证了应用、命令行工具和备份脚本，没有验证 systemd、Caddy、Node 安装步骤）。如果某一步报错，把输出发给我。
+
+
+## 运行时依赖（unpdf）
+
+AI 评分用到 DeepSeek 等只能读文字的模型时，服务器需要 `unpdf` 把 PDF 里的文字提取出来。`deploy/update.sh` 会自动把 `package.json`/`package-lock.json` 同步到 `/opt/apdemo` 并执行 `npm ci --omit=dev`，所以更新时照常运行：
+
+```bash
+cd ~/APdemoPub && git pull && sudo bash deploy/update.sh
+```
+
+服务器需要能访问 npm 仓库（registry.npmjs.org）；如果装不上，只有“文字模式”的模型会提示缺少组件，Claude / GPT 直接读 PDF 不受影响。

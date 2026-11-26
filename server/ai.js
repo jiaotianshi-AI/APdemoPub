@@ -1,14 +1,58 @@
 'use strict';
-// 调用 Anthropic（Claude）Messages API：判分、连通性测试。
+// AI 判分：支持多个服务商 —— Anthropic（Claude）、OpenAI（GPT）、DeepSeek，以及任何“OpenAI 兼容”的自定义服务商（通义千问、Kimi、智谱等）。
 // 只在服务器端调用；API 密钥只在这里使用，不会写进日志、错误信息或返回给页面。
-// 为了保持“没有运行时 npm 依赖”，直接用 Node 自带的 fetch 发 HTTPS 请求（官方 SDK 需要额外安装依赖）。
+// 直接用 Node 自带的 fetch 发 HTTPS 请求，不装各家的 SDK。
+//
+// PDF 的处理：
+//   · 能直接读 PDF 的（Claude、GPT，或自定义服务商勾选了“能直接读 PDF”）：把 PDF 原样发过去；
+//   · 只能收文字的（DeepSeek，或自定义服务商没有勾选）：服务器先用 unpdf 把 PDF 里的文字提取出来，再把文字发过去。
+//     纯扫描图片的 PDF 提取不出文字，会给出明确的提示。
 const fs = require('fs');
 const config = require('./config');
 const files = require('./files');
 
-const API_VERSION = '2026-10-21';
-const MAX_TOKENS = 16000; // 包含模型思考用的 token，给足以免被截断
-const MAX_TOTAL_BYTES = 24 * 1024 * 1024; // 一次请求里 PDF 的总大小上限（接口整个请求上限是 32MB，base64 会变大约 1/3）
+const ANTHROPIC_VERSION = '2026-10-21';
+const MAX_TOKENS_CLAUDE = 16000; // 包含模型思考用的 token，给足以免被截断
+const MAX_TOKENS_OPENAI = 16000;
+const MAX_TOKENS_DEEPSEEK = 8000; // DeepSeek deepseek-chat 的输出上限是 8K
+const MAX_TOTAL_BYTES = 24 * 1024 * 1024; // 一次请求里 PDF 的总大小上限
+const MAX_PDF_TEXT_CHARS = 100000; // 单个 PDF 提取出的文字上限
+const MIN_PDF_TEXT_CHARS = 20; // 少于这个字数，认为是扫描件
+
+const PROVIDERS = {
+  anthropic: {
+    id: 'anthropic', label: 'Anthropic（Claude）', kind: 'anthropic', pdf: 'native',
+    defaultModel: 'claude-opus-5-5',
+    models: [
+      { id: 'claude-opus-5-5', note: '推荐：判分准确度高' },
+      { id: 'claude-sonnet-5-5', note: '更快、更便宜' },
+      { id: 'claude-haiku-5-5', note: '最便宜，适合简单题目' },
+      { id: 'claude-fable-5-2', note: '能力最强，价格也最高' }
+    ]
+  },
+  openai: {
+    id: 'openai', label: 'OpenAI（GPT）', kind: 'openai', pdf: 'native', json: 'schema',
+    defaultModel: 'gpt-4.1',
+    models: [
+      { id: 'gpt-4.1', note: '能直接读 PDF' },
+      { id: 'gpt-5', note: '能力更强' },
+      { id: 'gpt-5-mini', note: '更快、更便宜' },
+      { id: 'gpt-4o', note: '能直接读 PDF' }
+    ]
+  },
+  deepseek: {
+    id: 'deepseek', label: 'DeepSeek', kind: 'openai', pdf: 'text', json: 'prompt', maxTokens: MAX_TOKENS_DEEPSEEK,
+    defaultModel: 'deepseek-chat',
+    models: [
+      { id: 'deepseek-chat', note: '通用、便宜' },
+      { id: 'deepseek-reasoner', note: '会先推理再回答，更慢' }
+    ]
+  },
+  custom: {
+    id: 'custom', label: '自定义（OpenAI 兼容）', kind: 'openai', pdf: 'configurable', json: 'prompt', custom: true,
+    defaultModel: '', models: []
+  }
+};
 
 class AiError extends Error {
   constructor(code, message, status) { super(message); this.code = code; this.status = status || 502; }
@@ -16,72 +60,132 @@ class AiError extends Error {
 
 const GRADE_SCHEMA = {
   type: 'object',
-  properties: {
-    score: { type: 'integer', enum: [1, 2, 3, 4, 5] },
-    feedback: { type: 'string' }
-  },
+  properties: { score: { type: 'integer', enum: [1, 2, 3, 4, 5] }, feedback: { type: 'string' } },
   required: ['score', 'feedback'],
   additionalProperties: false
 };
+const JSON_ONLY = '\n\n只输出一个 JSON 对象：{"score": 1-5 的整数, "feedback": "中文反馈"}，不要输出其他任何内容。';
 
-// 把接口返回的错误翻成给人看的话（不含密钥）
-function explain(status, apiMessage) {
-  const detail = apiMessage ? `（${String(apiMessage).slice(0, 300)}）` : '';
-  if (status === 401) return new AiError('AI_AUTH_FAILED', `AI 服务拒绝了 API 密钥，请管理员在“AI 评分设置”里检查密钥${detail}`, 502);
-  if (status === 403) return new AiError('AI_FORBIDDEN', `这个 API 密钥没有权限使用该模型或功能${detail}`, 502);
-  if (status === 404) return new AiError('AI_MODEL_NOT_FOUND', `找不到这个模型，请管理员检查模型名称${detail}`, 502);
-  if (status === 413) return new AiError('AI_TOO_LARGE', `提交的文件太大，AI 服务无法处理${detail}`, 413);
-  if (status === 429) return new AiError('AI_RATE_LIMITED', `AI 服务繁忙或额度不足，请稍后再试${detail}`, 502);
-  if (status === 400) return new AiError('AI_BAD_REQUEST', `AI 服务不接受这次请求${detail}`, 502);
-  if (status >= 500) return new AiError('AI_UNAVAILABLE', `AI 服务暂时不可用（${status}），请稍后再试`, 502);
-  return new AiError('AI_ERROR', `AI 服务返回了错误（${status}）${detail}`, 502);
+/* ---------- 自定义服务商的地址检查 ---------- */
+// 必须是 https；不能带用户名密码；默认不允许指向本机或内网地址（防止被用来探测服务器所在的内网）。
+// allowPrivate 只在测试里打开。注意：这里只检查地址写法，不做 DNS 解析。
+function validateBaseUrl(raw, { allowPrivate = config.aiAllowPrivateBase } = {}) {
+  if (typeof raw !== 'string' || !raw.trim() || raw.length > 300) throw new AiError('INVALID_BASE_URL', '请填写服务商的接口地址（例如 https://api.example.com/v1）。', 422);
+  let u;
+  try { u = new URL(raw.trim()); } catch (e) { throw new AiError('INVALID_BASE_URL', '接口地址格式不对，需要以 https:// 开头。', 422); }
+  if (u.username || u.password) throw new AiError('INVALID_BASE_URL', '接口地址里不能包含用户名或密码。', 422);
+  if (u.search || u.hash) throw new AiError('INVALID_BASE_URL', '接口地址里不要带问号参数。', 422);
+  if (!allowPrivate) {
+    if (u.protocol !== 'https:') throw new AiError('INVALID_BASE_URL', '接口地址必须以 https:// 开头。', 422);
+    const h = u.hostname.toLowerCase();
+    const isIp4 = /^\d{1,3}(\.\d{1,3}){3}$/.test(h);
+    const privateV4 = isIp4 && (/^(10|127|0)\./.test(h) || /^169\.254\./.test(h) || /^192\.168\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h));
+    if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.internal') || h.endsWith('.local') || privateV4 || h.includes(':') || h === '[::1]' || !h.includes('.')) {
+      throw new AiError('INVALID_BASE_URL', '接口地址不能指向本机或内网，请填写服务商的公网地址。', 422);
+    }
+  } else if (!['https:', 'http:'].includes(u.protocol)) throw new AiError('INVALID_BASE_URL', '接口地址必须以 https:// 开头。', 422);
+  return u.toString().replace(/\/+$/, '');
 }
 
-async function post(apiKey, body) {
+/* ---------- 共用：错误翻译与请求 ---------- */
+function explain(label, status, apiMessage) {
+  const detail = apiMessage ? `（${String(apiMessage).slice(0, 300)}）` : '';
+  if (status === 401) return new AiError('AI_AUTH_FAILED', `${label} 拒绝了 API 密钥，请管理员在“AI 评分设置”里检查密钥${detail}`, 502);
+  if (status === 403) return new AiError('AI_FORBIDDEN', `这个 API 密钥没有权限使用该模型或功能${detail}`, 502);
+  if (status === 404) return new AiError('AI_MODEL_NOT_FOUND', `找不到这个模型或接口地址不对，请管理员检查模型名称和地址${detail}`, 502);
+  if (status === 413) return new AiError('AI_TOO_LARGE', `提交的内容太大，${label} 无法处理${detail}`, 413);
+  if (status === 402) return new AiError('AI_PAYMENT', `${label} 的账户余额不足或未开通付费${detail}`, 502);
+  if (status === 429) return new AiError('AI_RATE_LIMITED', `${label} 繁忙或额度不足，请稍后再试${detail}`, 502);
+  if (status === 400 || status === 422) return new AiError('AI_BAD_REQUEST', `${label} 不接受这次请求${detail}`, 502);
+  if (status >= 500) return new AiError('AI_UNAVAILABLE', `${label} 暂时不可用（${status}），请稍后再试`, 502);
+  return new AiError('AI_ERROR', `${label} 返回了错误（${status}）${detail}`, 502);
+}
+
+async function postJson(label, url, headers, body) {
   let res;
   try {
-    res = await fetch(`${config.aiApiBase}/v1/messages`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': API_VERSION },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(config.aiTimeoutMs)
-    });
+    res = await fetch(url, { method: 'POST', headers: Object.assign({ 'content-type': 'application/json' }, headers), body: JSON.stringify(body), signal: AbortSignal.timeout(config.aiTimeoutMs) });
   } catch (e) {
-    if (e && (e.name === 'TimeoutError' || e.name === 'AbortError')) throw new AiError('AI_TIMEOUT', 'AI 服务响应超时，请稍后再试。', 504);
-    throw new AiError('AI_UNREACHABLE', '无法连接 AI 服务，请检查服务器的网络（出站 HTTPS 是否放行）。', 502);
+    if (e && (e.name === 'TimeoutError' || e.name === 'AbortError')) throw new AiError('AI_TIMEOUT', `${label} 响应超时，请稍后再试。`, 504);
+    throw new AiError('AI_UNREACHABLE', `无法连接 ${label}，请检查服务器的网络（出站 HTTPS 是否放行）。`, 502);
   }
   let data = null;
   try { data = await res.json(); } catch (e) { /* 不是 JSON */ }
-  if (!res.ok) throw Object.assign(explain(res.status, data && data.error && data.error.message), { apiMessage: data && data.error && data.error.message, httpStatus: res.status });
-  if (!data || !Array.isArray(data.content)) throw new AiError('AI_BAD_RESPONSE', 'AI 服务返回的内容无法识别。');
+  if (!res.ok) {
+    const msg = data && data.error && (data.error.message || (typeof data.error === 'string' ? data.error : null));
+    throw Object.assign(explain(label, res.status, msg), { apiMessage: msg || '', httpStatus: res.status });
+  }
+  if (!data) throw new AiError('AI_BAD_RESPONSE', `${label} 返回的内容无法识别。`);
   return data;
 }
 
-function textOf(data) {
-  return data.content.filter((b) => b && b.type === 'text').map((b) => b.text).join('\n').trim();
+/* ---------- 解析一个“已选定的服务商配置” ---------- */
+// cfg: { provider, model, apiKey, baseUrl?, pdfNative? }
+function resolve(cfg) {
+  const p = PROVIDERS[cfg.provider];
+  if (!p) throw new AiError('AI_BAD_PROVIDER', '不支持这个 AI 服务商。', 422);
+  let base;
+  if (p.custom) base = validateBaseUrl(cfg.baseUrl);
+  else base = config.aiBases[p.id];
+  const pdfNative = p.pdf === 'native' ? true : p.pdf === 'text' ? false : !!cfg.pdfNative;
+  return { p, base, pdfNative, label: p.custom ? `${p.label}（${new URL(base).host}）` : p.label };
 }
 
-// 连通性测试：很小的一次请求
-async function test({ apiKey, model }) {
-  const started = Date.now();
-  const data = await post(apiKey, {
-    model, max_tokens: 1024,
-    messages: [{ role: 'user', content: '请只回复一个词：OK' }]
-  });
-  if (data.stop_reason === 'refusal') throw new AiError('AI_REFUSED', 'AI 拒绝了测试请求。');
-  return { latencyMs: Date.now() - started, model: data.model || model, reply: textOf(data).slice(0, 200) };
+/* ---------- Anthropic ---------- */
+function anthropicText(data) { return data.content.filter((b) => b && b.type === 'text').map((b) => b.text).join('\n').trim(); }
+async function anthropicCall(r, apiKey, body) {
+  const data = await postJson(r.label, `${r.base}/v1/messages`, { 'x-api-key': apiKey, 'anthropic-version': ANTHROPIC_VERSION }, body);
+  if (!Array.isArray(data.content)) throw new AiError('AI_BAD_RESPONSE', `${r.label} 返回的内容无法识别。`);
+  return data;
 }
 
-function pdfBlock(file) {
-  const buf = fs.readFileSync(files.pathFor(file.stored_name));
-  return { buf, block: { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buf.toString('base64') } } };
+/* ---------- OpenAI 兼容（OpenAI / DeepSeek / 自定义） ---------- */
+async function openaiCall(r, apiKey, body) {
+  const data = await postJson(r.label, `${r.base}/chat/completions`, { authorization: `Bearer ${apiKey}` }, body);
+  if (!Array.isArray(data.choices) || !data.choices[0]) throw new AiError('AI_BAD_RESPONSE', `${r.label} 返回的内容无法识别。`);
+  return data;
+}
+function openaiText(data) {
+  const m = data.choices[0].message || {};
+  if (typeof m.content === 'string') return m.content.trim();
+  if (Array.isArray(m.content)) return m.content.map((b) => (b && b.text) || '').join('\n').trim();
+  return '';
 }
 
-// 解析模型返回的评分 JSON
+/* ---------- PDF ---------- */
+function readPdf(file) { return fs.readFileSync(files.pathFor(file.stored_name)); }
+function pdfPart(buf) { return { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buf.toString('base64') } }; }
+
+let unpdfPromise = null;
+async function extractPdfText(buf, what) {
+  let mod;
+  try { unpdfPromise = unpdfPromise || import('unpdf'); mod = await unpdfPromise; } catch (e) {
+    unpdfPromise = null;
+    throw new AiError('AI_PDF_TEXT_UNAVAILABLE', '服务器上没有安装“PDF 文字提取”组件（unpdf），无法把 PDF 转成文字交给这个模型。请管理员运行部署更新脚本，或改用能直接读 PDF 的模型（Claude、GPT）。', 500);
+  }
+  let text;
+  try {
+    const pdf = await mod.getDocumentProxy(new Uint8Array(buf));
+    const out = await mod.extractText(pdf, { mergePages: true });
+    text = String(out.text || '').replace(/\u0000/g, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  } catch (e) {
+    throw new AiError('AI_PDF_UNREADABLE', `${what} 无法读取（文件可能损坏或有密码）。`, 422);
+  }
+  if (text.replace(/\s/g, '').length < MIN_PDF_TEXT_CHARS) {
+    throw new AiError('AI_PDF_NO_TEXT', `${what} 里提取不到文字（可能是扫描的图片）。这个模型只能读文字：请换成含文字的 PDF，或改用能直接读 PDF 的模型（Claude、GPT）。`, 422);
+  }
+  if (text.length > MAX_PDF_TEXT_CHARS) throw new AiError('AI_TOO_LARGE', `${what} 里的文字太长（超过 ${MAX_PDF_TEXT_CHARS} 字），请精简后再试。`, 413);
+  return text;
+}
+
+/* ---------- 解析模型返回的评分 ---------- */
 function parseGrade(text) {
+  let t = String(text || '').trim();
+  const fence = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(t);
+  if (fence) t = fence[1];
   let obj = null;
-  try { obj = JSON.parse(text); } catch (e) {
-    const m = /\{[\s\S]*\}/.exec(text);
+  try { obj = JSON.parse(t); } catch (e) {
+    const m = /\{[\s\S]*\}/.exec(t);
     if (m) { try { obj = JSON.parse(m[0]); } catch (e2) { obj = null; } }
   }
   if (!obj || typeof obj !== 'object') throw new AiError('AI_BAD_RESPONSE', 'AI 的回答格式不对，无法读出评分。请重试。');
@@ -91,42 +195,102 @@ function parseGrade(text) {
   return { score, feedback: feedback.slice(0, 8000) };
 }
 
-// 判分：只发送三样东西 —— 题目 PDF、学生回答（文字或 PDF 二选一）、判分标准 PDF
+/* ---------- 连通性测试 ---------- */
+async function test(cfg) {
+  const r = resolve(cfg);
+  const started = Date.now();
+  const q = '请只回复一个词：OK';
+  let reply, model;
+  if (r.p.kind === 'anthropic') {
+    const data = await anthropicCall(r, cfg.apiKey, { model: cfg.model, max_tokens: 1024, messages: [{ role: 'user', content: q }] });
+    if (data.stop_reason === 'refusal') throw new AiError('AI_REFUSED', 'AI 拒绝了测试请求。');
+    reply = anthropicText(data); model = data.model;
+  } else {
+    const data = await openaiCall(r, cfg.apiKey, Object.assign({ model: cfg.model, messages: [{ role: 'user', content: q }] }, tokenLimit(r.p, 1024)));
+    reply = openaiText(data); model = data.model;
+  }
+  return { latencyMs: Date.now() - started, model: model || cfg.model, reply: reply.slice(0, 200) };
+}
+// OpenAI 新模型要用 max_completion_tokens；DeepSeek 和多数兼容服务用 max_tokens
+function tokenLimit(p, n) { return p.id === 'openai' ? { max_completion_tokens: n } : { max_tokens: Math.min(n, p.maxTokens || n) }; }
+
+/* ---------- 判分 ---------- */
+// cfg: { provider, model, apiKey, baseUrl?, pdfNative?, systemPrompt }
 // input: { questionFile, rubricFile, answerText?, answerFile? }（文件是 files 表的行）
-async function grade({ apiKey, model, systemPrompt }, input) {
+// 只发送三样东西：题目 PDF、学生回答（文字或 PDF 二选一）、判分标准 PDF
+async function grade(cfg, input) {
   const hasText = typeof input.answerText === 'string';
   const hasFile = !!input.answerFile;
   if (hasText === hasFile) throw new AiError('AI_BAD_INPUT', '学生回答必须二选一：文字或 PDF。', 422);
+  const r = resolve(cfg);
 
-  const q = pdfBlock(input.questionFile), r = pdfBlock(input.rubricFile);
-  const parts = [
-    { type: 'text', text: '【1. 题目（PDF）】' }, q.block,
-    { type: 'text', text: '【2. 学生的回答' + (hasFile ? '（PDF）】' : '（文字）】') }
-  ];
-  let total = q.buf.length + r.buf.length;
-  if (hasFile) { const a = pdfBlock(input.answerFile); total += a.buf.length; parts.push(a.block); }
-  else parts.push({ type: 'text', text: '<student_answer>\n' + input.answerText + '\n</student_answer>' });
-  parts.push({ type: 'text', text: '【3. 判分标准（PDF）】' }, r.block);
-  parts.push({ type: 'text', text: '请依据判分标准，给这道题的学生回答打分（1–5 的整数），并给出简明的反馈。' });
+  const bufs = { q: readPdf(input.questionFile), r: readPdf(input.rubricFile), a: hasFile ? readPdf(input.answerFile) : null };
+  const total = bufs.q.length + bufs.r.length + (bufs.a ? bufs.a.length : 0);
   if (total > MAX_TOTAL_BYTES) throw new AiError('AI_TOO_LARGE', 'PDF 文件加起来太大，AI 服务无法处理（总共不能超过约 24MB）。', 413);
 
-  const base = { model, max_tokens: MAX_TOKENS, system: systemPrompt, messages: [{ role: 'user', content: parts }] };
+  let result;
+  if (r.p.kind === 'anthropic') result = await gradeAnthropic(r, cfg, input, bufs);
+  else result = await gradeOpenAi(r, cfg, input, bufs);
+  result.provider = r.p.id;
+  return result;
+}
+
+async function gradeAnthropic(r, cfg, input, bufs) {
+  const parts = [{ type: 'text', text: '【1. 题目（PDF）】' }, pdfPart(bufs.q), { type: 'text', text: '【2. 学生的回答' + (bufs.a ? '（PDF）】' : '（文字）】') }];
+  if (bufs.a) parts.push(pdfPart(bufs.a)); else parts.push({ type: 'text', text: '<student_answer>\n' + input.answerText + '\n</student_answer>' });
+  parts.push({ type: 'text', text: '【3. 判分标准（PDF）】' }, pdfPart(bufs.r), { type: 'text', text: '请依据判分标准，给这道题的学生回答打分（1–5 的整数），并给出简明的反馈。' });
+  const base = { model: cfg.model, max_tokens: MAX_TOKENS_CLAUDE, system: cfg.systemPrompt, messages: [{ role: 'user', content: parts }] };
   let data;
   try {
-    data = await post(apiKey, Object.assign({ output_config: { format: { type: 'json_schema', schema: GRADE_SCHEMA } } }, base));
+    data = await anthropicCall(r, cfg.apiKey, Object.assign({ output_config: { format: { type: 'json_schema', schema: GRADE_SCHEMA } } }, base));
   } catch (e) {
     // 个别模型不支持结构化输出：去掉它再试一次，改为从文字里读 JSON
-    if (e && e.httpStatus === 400 && /output_config|structured|json_schema|format/i.test(e.apiMessage || '')) {
-      data = await post(apiKey, Object.assign({}, base, { system: systemPrompt + '\n\n只输出一个 JSON 对象：{"score": 1-5 的整数, "feedback": "中文反馈"}，不要输出其他内容。' }));
-    } else throw e;
+    if (e && e.httpStatus === 400 && /output_config|structured|json_schema|format/i.test(e.apiMessage || '')) data = await anthropicCall(r, cfg.apiKey, Object.assign({}, base, { system: cfg.systemPrompt + JSON_ONLY }));
+    else throw e;
   }
   if (data.stop_reason === 'refusal') throw new AiError('AI_REFUSED', 'AI 拒绝处理这次内容，没有给出评分。请检查文件，或稍后重试。');
   if (data.stop_reason === 'max_tokens') throw new AiError('AI_TRUNCATED', 'AI 的回答被截断了，没有得到评分。请重试。');
-  const res = parseGrade(textOf(data));
-  res.model = data.model || model;
+  const res = parseGrade(anthropicText(data));
+  res.model = data.model || cfg.model;
   res.inputTokens = data.usage && data.usage.input_tokens;
   res.outputTokens = data.usage && data.usage.output_tokens;
   return res;
 }
 
-module.exports = { AiError, GRADE_SCHEMA, test, grade };
+async function gradeOpenAi(r, cfg, input, bufs) {
+  const tail = '请依据判分标准，给这道题的学生回答打分（1–5 的整数），并给出简明的反馈。';
+  let content;
+  if (r.pdfNative) {
+    // 能直接读 PDF：用 file 内容块（OpenAI Chat Completions 的文件输入）
+    const file = (buf, name) => ({ type: 'file', file: { filename: name, file_data: 'data:application/pdf;base64,' + buf.toString('base64') } });
+    content = [{ type: 'text', text: '【1. 题目（PDF）】' }, file(bufs.q, 'question.pdf'), { type: 'text', text: '【2. 学生的回答' + (bufs.a ? '（PDF）】' : '（文字）】') }];
+    if (bufs.a) content.push(file(bufs.a, 'answer.pdf')); else content.push({ type: 'text', text: '<student_answer>\n' + input.answerText + '\n</student_answer>' });
+    content.push({ type: 'text', text: '【3. 判分标准（PDF）】' }, file(bufs.r, 'rubric.pdf'), { type: 'text', text: tail });
+  } else {
+    // 只能收文字：先把 PDF 里的文字提取出来
+    const qText = await extractPdfText(bufs.q, '题目 PDF');
+    const rText = await extractPdfText(bufs.r, '判分标准 PDF');
+    const aText = bufs.a ? await extractPdfText(bufs.a, '回答 PDF') : input.answerText;
+    content = `【1. 题目（PDF 里的文字）】\n<question>\n${qText}\n</question>\n\n【2. 学生的回答${bufs.a ? '（PDF 里的文字）' : '（文字）'}】\n<student_answer>\n${aText}\n</student_answer>\n\n【3. 判分标准（PDF 里的文字）】\n<rubric>\n${rText}\n</rubric>\n\n${tail}`;
+  }
+  const wantSchema = r.p.json === 'schema';
+  const system = wantSchema ? cfg.systemPrompt : cfg.systemPrompt + JSON_ONLY;
+  const base = Object.assign({ model: cfg.model, messages: [{ role: 'system', content: system }, { role: 'user', content: content }] }, tokenLimit(r.p, r.p.id === 'openai' ? MAX_TOKENS_OPENAI : MAX_TOKENS_OPENAI));
+  let data;
+  try {
+    data = await openaiCall(r, cfg.apiKey, wantSchema ? Object.assign({ response_format: { type: 'json_schema', json_schema: { name: 'grade', strict: true, schema: GRADE_SCHEMA } } }, base) : base);
+  } catch (e) {
+    if (wantSchema && e && e.httpStatus === 400 && /response_format|json_schema|structured/i.test(e.apiMessage || '')) data = await openaiCall(r, cfg.apiKey, Object.assign({}, base, { messages: [{ role: 'system', content: cfg.systemPrompt + JSON_ONLY }, base.messages[1]] }));
+    else throw e;
+  }
+  const ch = data.choices[0];
+  if ((ch.message && ch.message.refusal) || ch.finish_reason === 'content_filter') throw new AiError('AI_REFUSED', 'AI 拒绝处理这次内容，没有给出评分。请检查文件，或稍后重试。');
+  if (ch.finish_reason === 'length') throw new AiError('AI_TRUNCATED', 'AI 的回答被截断了，没有得到评分。请重试。');
+  const res = parseGrade(openaiText(data));
+  res.model = data.model || cfg.model;
+  res.inputTokens = data.usage && data.usage.prompt_tokens;
+  res.outputTokens = data.usage && data.usage.completion_tokens;
+  return res;
+}
+
+module.exports = { AiError, PROVIDERS, GRADE_SCHEMA, validateBaseUrl, resolve, test, grade, extractPdfText };
