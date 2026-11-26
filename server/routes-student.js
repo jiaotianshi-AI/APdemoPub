@@ -52,7 +52,7 @@ function listAssessments(res, ctx) {
     item.attempt = att ? attempts.publicAttempt(att) : null;
     item.questionCount = null;
     if (a.status === 'submitted' || a.status === 'graded') {
-      item.questionFiles = attempts.questionFiles(a.id);
+      item.questionFiles = attempts.questionRows(a.id, { answers: true, grades: a.status === 'graded' });
       item.answerFiles = attempts.answerFiles(a.id);
     }
     return item;
@@ -67,7 +67,8 @@ function detail(res, ctx, idText) {
   const out = { serverNow: attempts.nowIso(), assessment: baseOf(a), attempt: attempts.publicAttempt(att), questions: null, answers: {}, answerFiles: [] };
   const completed = a.status === 'submitted' || a.status === 'graded';
   if (a.status === 'in_progress' || completed) {
-    out.questions = attempts.questionFiles(a.id);
+    // 进行中只给题目；完成后才带回答 PDF，评分要等“已评分”才显示
+    out.questions = completed ? attempts.questionRows(a.id, { answers: true, grades: a.status === 'graded' }) : attempts.questionFiles(a.id);
     if (att) out.answers = attempts.answersOf(att.id);
   } else {
     out.questionCount = null; // 开始之前不告诉学生有几道题

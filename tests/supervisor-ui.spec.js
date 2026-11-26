@@ -166,46 +166,96 @@ test("修改待测试：改时间、单元，增删题目文件；删除要确�
   await expect(card(page, unit + "b")).toHaveCount(0);
 });
 
-test("答题与分数：上传答题 PDF、录入分数后变为已评分；已评分只有修改分数/重测", async ({ page }) => {
+test("每题的回答 PDF 与评分：每题可单独上传回答、评分；评完所有题后自动算出汇总评分并变为已评分；公式有说明", async ({ page }) => {
   await setup(page, 1);
   const unit = "Unit " + uid("s");
-  await createVia(page, unit);
+  await createVia(page, unit, { files: ["问题1.pdf", "问题2.pdf", "问题3.pdf"] });
   const c = card(page, unit);
-  await c.getByRole("button", { name: /^答题与分数：/ }).click();
-  await page.locator("#a-files input[type=file]").setInputFiles([file("答题1.pdf"), file("答题2.pdf")]);
-  await expect(page.locator("#a-files .file-item")).toHaveCount(2);
-  await page.selectOption("#s-score", "4");
+  // 列表里每道题一行：题号、问题 PDF、回答 PDF（可为空）、评分（可为空）
+  await expect(c.locator(".q-row:not(.q-head)")).toHaveCount(3);
+  await expect(c.locator(".q-row:not(.q-head)").first()).toContainText("Q1");
+  await expect(c.locator(".q-row:not(.q-head)").first()).toContainText("问题1.pdf");
+  await expect(c).toContainText("汇总评分");
+  await expect(c).toContainText("已评 0 / 3 题");
+
+  await c.getByRole("button", { name: /^答题与评分：/ }).click();
+  await expect(page.locator("#formula-hint")).toContainText("平均值，四舍五入到整数");
+  await expect(page.locator("#grade-rows .grade-row")).toHaveCount(3);
+  await expect(page.locator("#grade-overall")).toContainText("还不能计算（已评 0 / 3 题）");
+  // Q1：上传回答 PDF + 评分 5；Q2：只评分 3；Q3 暂不评
+  await page.locator("#grade-rows .grade-row").nth(0).locator("input[type=file]").setInputFiles(file("回答Q1.pdf"));
+  await expect(page.locator("#grade-rows .grade-row").nth(0)).toContainText("回答Q1.pdf");
+  await page.selectOption("#score-" + (await page.locator("#grade-rows .grade-row select").nth(0).getAttribute("id")).replace("score-", ""), "5");
+  await page.locator("#grade-rows .grade-row select").nth(1).selectOption("3");
+  await expect(page.locator("#grade-overall")).toContainText("已评 2 / 3 题");
+  await page.click("#score-submit");
+  await expect(page.locator("#score-dialog")).toBeHidden();
+  await expect(c).toContainText("已评 2 / 3 题");
+  await expect(c).not.toContainText("已评分");
+  await expect(c.locator(".q-row:not(.q-head)").first()).toContainText("回答Q1.pdf");
+  await expect(c.locator(".q-row:not(.q-head)").first()).toContainText("5 / 5");
+  await expect(c.locator(".q-row:not(.q-head)").nth(1)).toContainText("—"); // Q2 没有回答 PDF（可为空）
+  await expect(c.locator(".q-row:not(.q-head)").nth(1)).toContainText("3 / 5");
+
+  // 评完 Q3 = 4：(5+3+4)/3 = 4 → 汇总 4，状态变为已评分
+  await c.getByRole("button", { name: /^答题与评分：/ }).click();
+  await page.locator("#grade-rows .grade-row select").nth(2).selectOption("4");
+  await expect(page.locator("#grade-overall")).toContainText("汇总评分：4 / 5（平均 4）");
   await page.click("#score-submit");
   await expect(page.locator("#score-dialog")).toBeHidden();
   await expect(c).toContainText("已评分");
-  await expect(c).toContainText("4 / 5");
-  await expect(c).toContainText("答题1.pdf");
+  await expect(c).toContainText("4 / 5（平均 4）");
   await expect(c.getByRole("button", { name: /^修改：/ })).toHaveCount(0);
   await expect(c.getByRole("button", { name: /^删除：/ })).toHaveCount(0);
-  await expect(c.getByRole("button", { name: /^修改分数：/ })).toBeVisible();
+  await expect(c.getByRole("button", { name: /^修改评分：/ })).toBeVisible();
   await expect(c.getByRole("button", { name: /^重测：/ })).toBeVisible();
 
-  await c.getByRole("button", { name: /^修改分数：/ }).click();
-  await expect(page.locator("#s-score")).toHaveValue("4");
-  await page.selectOption("#s-score", "");
+  // 修改某题评分：Q3 改成 5 → (5+3+5)/3 = 4.33 → 4；清空 Q2 的评分 → 汇总回到空，状态退回
+  await c.getByRole("button", { name: /^修改评分：/ }).click();
+  await expect(page.locator("#grade-rows .grade-row select").nth(0)).toHaveValue("5");
+  await page.locator("#grade-rows .grade-row select").nth(1).selectOption("");
+  await expect(page.locator("#grade-overall")).toContainText("还不能计算");
   await page.click("#score-submit");
-  await expect(page.locator("#score-error")).toContainText("不能清除分数");
-  await page.selectOption("#s-score", "5");
+  await expect(c).toContainText("已评 2 / 3 题");
+  await expect(c.getByRole("button", { name: /^重测：/ })).toHaveCount(0);
+});
+
+test("回答 PDF 的替换与移除；不是 PDF 的文件被拒绝", async ({ page }) => {
+  await setup(page, 1);
+  const unit = "Unit " + uid("p");
+  await createVia(page, unit, { files: ["问题1.pdf"] });
+  const c = card(page, unit);
+  await c.getByRole("button", { name: /^答题与评分：/ }).click();
+  const row = page.locator("#grade-rows .grade-row").first();
+  await row.locator("input[type=file]").setInputFiles({ name: "x.txt", mimeType: "text/plain", buffer: Buffer.from("hi") });
+  await expect(row).toContainText("不是 PDF");
+  await row.locator("input[type=file]").setInputFiles(file("第一版.pdf"));
+  await expect(row.locator(".fname")).toContainText("第一版.pdf");
   await page.click("#score-submit");
-  await expect(c).toContainText("5 / 5");
+  await expect(c.locator(".q-row:not(.q-head)").first()).toContainText("第一版.pdf");
+  await c.getByRole("button", { name: /^答题与评分：/ }).click();
+  await row.locator("input[type=file]").setInputFiles(file("第二版.pdf")); // 替换
+  await expect(row.locator(".fname")).toContainText("第二版.pdf");
+  await page.click("#score-submit");
+  await expect(c.locator(".q-row:not(.q-head)").first()).toContainText("第二版.pdf");
+  await expect(c).not.toContainText("第一版.pdf");
+  await c.getByRole("button", { name: /^答题与评分：/ }).click();
+  await row.getByRole("button", { name: /^移除/ }).click();
+  await page.click("#score-submit");
+  await expect(c).not.toContainText("第二版.pdf");
 });
 
 test("重测：生成一条新的待测试记录，原记录保留", async ({ page }) => {
   await setup(page, 1);
   const unit = "Unit " + uid("r");
   await createVia(page, unit);
-  await card(page, unit).getByRole("button", { name: /^答题与分数：/ }).click();
-  await page.selectOption("#s-score", "2");
+  await card(page, unit).getByRole("button", { name: /^答题与评分：/ }).click();
+  await page.locator("#grade-rows .grade-row select").first().selectOption("2");
   await page.click("#score-submit");
   await expect(page.locator("#score-dialog")).toBeHidden();
 
   await card(page, unit).getByRole("button", { name: /^重测：/ }).click();
-  await expect(page.locator("#retake-summary")).toContainText("分数 2 / 5");
+  await expect(page.locator("#retake-summary")).toContainText("汇总评分 2 / 5");
   await page.click("#retake-submit");
   await expect(page.locator("#retake-error")).toContainText("新的测试日期和时间");
   await page.fill("#r-date", "2020-01-01"); await page.fill("#r-time", "10:00");
@@ -268,8 +318,8 @@ test("触控目标 ≥ 44px；axe 无 serious/critical（页面与各对话框�
   await card(page, unit).getByRole("button", { name: /^修改：/ }).click();
   await check("修改对话框");
   await page.keyboard.press("Escape");
-  await card(page, unit).getByRole("button", { name: /^答题与分数：/ }).click();
-  await check("答题与分数对话框");
+  await card(page, unit).getByRole("button", { name: /^答题与评分：/ }).click();
+  await check("答题与评分对话框");
   await page.keyboard.press("Escape");
 
   await page.setViewportSize({ width: 390, height: 844 });
@@ -293,9 +343,9 @@ test("截图归档：督导者页面（供人工审阅外观）", async ({ page 
   const { students } = await setup(page, 2);
   await createVia(page, "Unit 2", { all: true, subject: "AP Biology", files: ["Unit2-题目A.pdf", "Unit2-题目B.pdf"] });
   const c = card(page, "Unit 2").first();
-  await c.getByRole("button", { name: /^答题与分数：/ }).click();
-  await page.locator("#a-files input[type=file]").setInputFiles(file("答题.pdf"));
-  await page.selectOption("#s-score", "4");
+  await c.getByRole("button", { name: /^答题与评分：/ }).click();
+  await page.locator("#grade-rows .grade-row input[type=file]").first().setInputFiles(file("答题.pdf"));
+  await page.locator("#grade-rows .grade-row select").first().selectOption("4");
   await page.click("#score-submit");
   await expect(page.locator("#score-dialog")).toBeHidden();
   await createVia(page, "Unit 3", { subject: "AP Biology", date: "2031-04-05", start: "2031-03-20" });
@@ -362,8 +412,13 @@ test("学生测试中/已提交：显示状态和作答信息；查看学生答�
   await expect(page.locator("#view-questions .view-q").first()).toContainText("题目A.pdf");
   await expect(page.locator("#view-questions .answer-text").first()).toHaveText("学生写的第一题答案\n第二行");
   await expect(page.locator("#view-questions .answer-text").nth(1)).toHaveText("（没有填写）");
+  // 列表里每道题都有“回答文字”一栏（屏幕输入作答时显示学生写的文字）
+  await page.keyboard.press("Escape");
+  await expect(c.locator(".q-row:not(.q-head)").first()).toContainText("学生写的第一题答案");
+  await expect(c.locator(".q-row:not(.q-head)").nth(1)).toContainText("（没有填写）");
+  await c.getByRole("button", { name: /^查看学生答题：/ }).click();
   // AI 评分：接口已预留，现在提示尚未开放
-  await page.getByRole("button", { name: "请求 AI 评分：第 1 题" }).click();
+  await page.getByRole("button", { name: "请求 AI 评分：Q1" }).click();
   await expect(page.locator("#view-ai-msg")).toContainText("AI 评分功能尚未开放");
   await page.click("#view-ai-all");
   await expect(page.locator("#view-ai-msg")).toContainText("AI 评分功能尚未开放");
@@ -371,10 +426,11 @@ test("学生测试中/已提交：显示状态和作答信息；查看学生答�
   await expect(page.locator("#view-dialog")).toBeHidden();
 
   // 提交后可以上传扫描件并评分
-  await c.getByRole("button", { name: /^答题与分数：/ }).click();
-  await page.locator("#a-files input[type=file]").setInputFiles(file("扫描.pdf"));
-  await expect(page.locator("#a-files .file-item")).toHaveCount(1);
-  await page.selectOption("#s-score", "3");
+  await c.getByRole("button", { name: /^答题与评分：/ }).click();
+  await page.locator("#grade-rows .grade-row").first().locator("input[type=file]").setInputFiles(file("扫描.pdf"));
+  await expect(page.locator("#grade-rows .grade-row").first()).toContainText("扫描.pdf");
+  await page.locator("#grade-rows .grade-row select").nth(0).selectOption("3");
+  await page.locator("#grade-rows .grade-row select").nth(1).selectOption("3");
   await page.click("#score-submit");
   await expect(c).toContainText("已评分");
   await expect(c).toContainText("3 / 5");

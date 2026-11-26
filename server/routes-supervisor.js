@@ -6,6 +6,7 @@ const { httpError, readJson, sendJson } = require('./http');
 const files = require('./files');
 const attempts = require('./attempts');
 const { wallToIso, dateToIso } = require('./timeutil');
+const scoring = require('./scoring');
 
 const TEXT_MAX = 64;
 const DURATION_MIN = 5;
@@ -76,37 +77,31 @@ function cleanFileIds(value, ctx, role, { min }) {
 }
 
 /* ---------- 输出 ---------- */
-function filesOf(assessmentIds) {
-  const map = new Map();
-  if (!assessmentIds.length) return map;
-  const rows = db.prepare(`SELECT af.assessment_id, af.role, f.id, f.original_name, f.size
-    FROM assessment_files af JOIN files f ON f.id = af.file_id
-    WHERE af.assessment_id IN (${assessmentIds.map(() => '?').join(',')}) ORDER BY af.position, f.id`).all(...assessmentIds);
-  for (const r of rows) {
-    if (!map.has(r.assessment_id)) map.set(r.assessment_id, { question: [], answer: [] });
-    map.get(r.assessment_id)[r.role].push({ id: r.id, name: r.original_name, size: r.size });
-  }
-  return map;
-}
 function attemptInfo(assessmentId) {
   const att = attempts.getAttempt(assessmentId);
   return att ? Object.assign(attempts.publicAttempt(att), attempts.summary(att)) : null;
 }
-function serialize(a, fmap) {
-  const f = fmap.get(a.id) || { question: [], answer: [] };
+function serialize(a) {
+  const qs = attempts.questionRows(a.id, { text: true });
+  const sum = scoring.summarize(qs.map((q) => q.score));
   return {
     id: a.id, studentId: a.student_id, subject: a.subject, unit: a.unit,
     unitStartDate: a.unit_start_date, scheduledWall: a.scheduled_wall, scheduledAt: a.scheduled_at, timezone: a.timezone,
     durationMinutes: a.duration_minutes,
-    status: a.status, score: a.score, gradedAt: a.graded_at, attemptNo: a.attempt_no, retakeOf: a.retake_of,
-    createdAt: a.created_at, questionFiles: f.question, answerFiles: f.answer,
+    status: a.status, attemptNo: a.attempt_no, retakeOf: a.retake_of, createdAt: a.created_at, gradedAt: a.graded_at,
+    // 汇总评分（按 server/scoring.js 的公式由各题评分算出）；旧数据没有逐题评分时保留原来的分数
+    score: a.score,
+    scoredCount: sum.scoredCount, questionCount: sum.questionCount, scoreAverage: sum.average,
+    // 每道题：题号、题目 PDF、回答 PDF（可为空）、评分（可为空）
+    questionFiles: qs,
+    // 旧版本一次性上传、没有对应到具体题目的答题文件
+    answerFiles: attempts.answerFiles(a.id),
     attempt: attemptInfo(a.id)
   };
 }
 function respond(res, status, ids) {
   const rows = db.prepare(`SELECT * FROM assessments WHERE id IN (${ids.map(() => '?').join(',')}) ORDER BY id`).all(...ids);
-  const fmap = filesOf(ids);
-  const list = rows.map((r) => serialize(r, fmap));
+  const list = rows.map(serialize);
   sendJson(res, status, ids.length === 1 && status !== 201 ? { assessment: list[0] } : { assessments: list });
 }
 
@@ -129,8 +124,7 @@ function listAssessments(res, ctx, studentId) {
   attempts.finalizeOverdue();
   const stu = requireLinkedStudent(ctx, studentId);
   const rows = db.prepare('SELECT * FROM assessments WHERE student_id = ? ORDER BY scheduled_at DESC, id DESC').all(stu.id);
-  const fmap = filesOf(rows.map((r) => r.id));
-  sendJson(res, 200, { student: { id: stu.id, username: stu.username }, assessments: rows.map((r) => serialize(r, fmap)) });
+  sendJson(res, 200, { student: { id: stu.id, username: stu.username }, assessments: rows.map(serialize) });
 }
 
 async function createAssessments(req, res, ctx) {
@@ -165,6 +159,48 @@ async function createAssessments(req, res, ctx) {
   respond(res, 201, created);
 }
 
+// 评分结果落到测试记录上：每道题都有评分 → 算出汇总评分、状态变为“已评分”；
+// 否则汇总为空，已经是“已评分”的退回“已提交”（学生交过答卷）或“待测试”
+function recomputeGrade(assessmentId, nowIso) {
+  const a = db.prepare('SELECT * FROM assessments WHERE id = ?').get(assessmentId);
+  if (a.status === 'in_progress') return;
+  const sum = scoring.summarize(attempts.questionRows(assessmentId).map((q) => q.score));
+  if (sum.overall !== null) {
+    db.prepare("UPDATE assessments SET status = 'graded', score = ?, graded_at = ?, graded_by = 'supervisor', updated_at = ? WHERE id = ?")
+      .run(sum.overall, a.status === 'graded' && a.graded_at ? a.graded_at : nowIso, nowIso, assessmentId);
+  } else if (a.status === 'graded') {
+    const att = attempts.getAttempt(assessmentId);
+    db.prepare('UPDATE assessments SET status = ?, score = NULL, graded_at = NULL, graded_by = NULL, updated_at = ? WHERE id = ?')
+      .run(att && att.submitted_at ? 'submitted' : 'scheduled', nowIso, assessmentId);
+  }
+}
+
+function cleanQuestionUpdates(value, validQuestionIds, ctx) {
+  if (!Array.isArray(value) || value.length === 0 || value.length > config.maxFilesPerRole) throw httpError(422, 'INVALID_QUESTIONS', '题目评分/回答的格式不正确。');
+  const seen = new Set();
+  const out = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) throw httpError(422, 'INVALID_QUESTIONS', '题目评分/回答的格式不正确。');
+    const bad = Object.keys(item).filter((k) => !['questionFileId', 'answerFileId', 'score'].includes(k));
+    if (bad.length) throw httpError(422, 'INVALID_QUESTIONS', '题目评分/回答里有不支持的内容。');
+    const qid = item.questionFileId;
+    if (!Number.isInteger(qid) || !validQuestionIds.includes(qid)) throw httpError(422, 'INVALID_QUESTION', '有题目不属于这场测试。');
+    if (seen.has(qid)) throw httpError(422, 'INVALID_QUESTIONS', '同一道题重复出现了。');
+    seen.add(qid);
+    const u = { questionFileId: qid };
+    if ('score' in item) {
+      if (item.score !== null && !scoring.isValidScore(item.score)) throw httpError(422, 'INVALID_SCORE', `每题的评分必须是 ${scoring.MIN_SCORE}–${scoring.MAX_SCORE} 的整数，或留空。`);
+      u.score = item.score;
+    }
+    if ('answerFileId' in item) {
+      if (item.answerFileId !== null) cleanFileIds([item.answerFileId], ctx, 'answer', { min: 1 });
+      u.answerFileId = item.answerFileId;
+    }
+    out.push(u);
+  }
+  return out;
+}
+
 async function updateAssessment(req, res, ctx, idText) {
   const a = requireAssessment(ctx, idText);
   const body = await readJson(req);
@@ -174,10 +210,10 @@ async function updateAssessment(req, res, ctx, idText) {
   const fresh = db.prepare('SELECT * FROM assessments WHERE id = ?').get(a.id);
   if (fresh.status === 'in_progress') throw httpError(409, 'IN_PROGRESS', '学生正在测试，完成后才能修改。');
   const allowed = fresh.status === 'scheduled'
-    ? ['scheduledWall', 'subject', 'unit', 'unitStartDate', 'durationMinutes', 'questionFileIds', 'answerFileIds', 'score']
-    : ['score', 'answerFileIds'];
+    ? ['scheduledWall', 'subject', 'unit', 'unitStartDate', 'durationMinutes', 'questionFileIds', 'questions']
+    : ['questions'];
   const bad = keys.filter((k) => !allowed.includes(k));
-  if (bad.length) throw httpError(409, 'NOT_EDITABLE', '已提交或已评分的测试只能修改分数和答题文件，需要改时间请使用“重测”。');
+  if (bad.length) throw httpError(409, 'NOT_EDITABLE', fresh.status === 'scheduled' ? '不支持修改这个内容。' : '已提交或已评分的测试只能修改每题的回答文件和评分，需要改时间请使用“重测”。');
 
   let { subject, unit, unit_start_date: startDate, unit_start_at: startAt, scheduled_wall: wall, scheduled_at: at } = a;
   if ('subject' in body) subject = cleanText(body.subject, '测试科目');
@@ -192,25 +228,56 @@ async function updateAssessment(req, res, ctx, idText) {
   }
   const duration = 'durationMinutes' in body ? cleanDuration(body.durationMinutes) : a.duration_minutes;
   const questionIds = 'questionFileIds' in body ? cleanFileIds(body.questionFileIds, ctx, 'question', { min: 1 }) : null;
-  const answerIds = 'answerFileIds' in body ? cleanFileIds(body.answerFileIds, ctx, 'answer', { min: 0 }) : null;
-  let score = null;
-  if ('score' in body) {
-    if (!Number.isInteger(body.score) || body.score < 1 || body.score > 5) throw httpError(422, 'INVALID_SCORE', '分数必须是 1–5 的整数。');
-    score = body.score;
-  }
+  const currentQuestionIds = attempts.questionFiles(a.id).map((q) => q.id);
+  const updates = 'questions' in body ? cleanQuestionUpdates(body.questions, questionIds || currentQuestionIds, ctx) : null;
 
   const now = new Date().toISOString();
   const removed = transaction(() => {
     db.prepare('UPDATE assessments SET subject = ?, unit = ?, unit_start_date = ?, unit_start_at = ?, scheduled_wall = ?, scheduled_at = ?, duration_minutes = ?, updated_at = ? WHERE id = ?')
       .run(subject, unit, startDate, startAt, wall, at, duration, now, a.id);
-    if (score !== null) db.prepare("UPDATE assessments SET score = ?, status = 'graded', graded_at = ?, graded_by = 'supervisor' WHERE id = ?").run(score, now, a.id);
     let gone = [];
-    if (questionIds) gone = gone.concat(setFiles(a.id, 'question', questionIds));
-    if (answerIds) gone = gone.concat(setFiles(a.id, 'answer', answerIds));
+    if (questionIds) {
+      gone = gone.concat(setFiles(a.id, 'question', questionIds));
+      // 被移除的题目：它的回答 PDF 和评分一并清除
+      const dropped = currentQuestionIds.filter((q) => !questionIds.includes(q));
+      for (const q of dropped) {
+        const m = db.prepare('SELECT file_id FROM question_answers WHERE assessment_id = ? AND question_file_id = ?').get(a.id, q);
+        if (m) {
+          db.prepare("DELETE FROM assessment_files WHERE assessment_id = ? AND file_id = ? AND role = 'answer'").run(a.id, m.file_id);
+          gone.push(m.file_id);
+        }
+        db.prepare('DELETE FROM question_answers WHERE assessment_id = ? AND question_file_id = ?').run(a.id, q);
+        db.prepare('DELETE FROM question_scores WHERE assessment_id = ? AND question_file_id = ?').run(a.id, q);
+      }
+    }
+    if (updates) {
+      for (const u of updates) {
+        if ('answerFileId' in u) {
+          const old = db.prepare('SELECT file_id FROM question_answers WHERE assessment_id = ? AND question_file_id = ?').get(a.id, u.questionFileId);
+          if (old && old.file_id !== u.answerFileId) {
+            db.prepare("DELETE FROM assessment_files WHERE assessment_id = ? AND file_id = ? AND role = 'answer'").run(a.id, old.file_id);
+            db.prepare('DELETE FROM question_answers WHERE assessment_id = ? AND question_file_id = ?').run(a.id, u.questionFileId);
+            gone.push(old.file_id);
+          }
+          if (u.answerFileId !== null) {
+            const used = db.prepare('SELECT question_file_id FROM question_answers WHERE assessment_id = ? AND file_id = ? AND question_file_id != ?').get(a.id, u.answerFileId, u.questionFileId);
+            if (used) throw httpError(422, 'DUPLICATE_ANSWER_FILE', '同一个文件不能作为两道题的回答。');
+            db.prepare("INSERT OR IGNORE INTO assessment_files (assessment_id, file_id, role, position) VALUES (?, ?, 'answer', 0)").run(a.id, u.answerFileId);
+            db.prepare('INSERT OR REPLACE INTO question_answers (assessment_id, question_file_id, file_id) VALUES (?, ?, ?)').run(a.id, u.questionFileId, u.answerFileId);
+          }
+        }
+        if ('score' in u) {
+          if (u.score === null) db.prepare('DELETE FROM question_scores WHERE assessment_id = ? AND question_file_id = ?').run(a.id, u.questionFileId);
+          else db.prepare('INSERT OR REPLACE INTO question_scores (assessment_id, question_file_id, score) VALUES (?, ?, ?)').run(a.id, u.questionFileId, u.score);
+        }
+      }
+    }
+    // 只有评分或题目发生变化时才重新计算（只传回答 PDF 不会动旧数据里的分数）
+    if (questionIds || (updates && updates.some((u) => 'score' in u))) recomputeGrade(a.id, now);
     return gone;
   });
   files.deleteIfUnreferenced(removed);
-  audit(ctx.account.username, score !== null ? 'score_assessment' : 'update_assessment', String(a.id), keys.join(','));
+  audit(ctx.account.username, updates ? 'grade_assessment' : 'update_assessment', String(a.id), keys.join(','));
   respond(res, 200, [a.id]);
 }
 
@@ -219,9 +286,10 @@ function viewAttempt(res, ctx, idText) {
   attempts.finalizeOverdue();
   const a = requireAssessment(ctx, idText);
   const att = attempts.getAttempt(a.id);
-  if (!att) return sendJson(res, 200, { attempt: null, questions: attempts.questionFiles(a.id).map((q) => Object.assign(q, { answer: null })) });
+  const rows = attempts.questionRows(a.id, { text: true });
+  if (!att) return sendJson(res, 200, { attempt: null, questions: rows.map((q) => Object.assign(q, { answer: null })) });
   const answers = attempts.answersOf(att.id);
-  const questions = attempts.questionFiles(a.id).map((q) => Object.assign(q, { answer: Object.prototype.hasOwnProperty.call(answers, q.id) ? answers[q.id] : null }));
+  const questions = rows.map((q) => Object.assign(q, { answer: Object.prototype.hasOwnProperty.call(answers, q.id) ? answers[q.id] : null }));
   sendJson(res, 200, { attempt: Object.assign(attempts.publicAttempt(att), attempts.summary(att)), questions });
 }
 

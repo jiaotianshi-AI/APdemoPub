@@ -62,7 +62,7 @@ test("旧数据库升级：测试记录、文件关联、重测关系完整保�
     console.log(JSON.stringify(out));`;
   const run = () => JSON.parse(execFileSync(process.execPath, ["--disable-warning=ExperimentalWarning", "-e", check], { env: { ...process.env, APDEMO_DB: dbPath } }).toString().trim().split("\n").pop());
   const out = run();
-  expect(out.version).toBe(1);
+  expect(out.version).toBe(2);
   expect(out.rows).toEqual([
     { id: 1, unit: "Unit 2", status: "graded", score: 4, attempt_no: 1, retake_of: null, duration_minutes: 60 },
     { id: 2, unit: "Unit 2", status: "scheduled", score: null, attempt_no: 2, retake_of: 1, duration_minutes: 60 }
@@ -70,7 +70,7 @@ test("旧数据库升级：测试记录、文件关联、重测关系完整保�
   expect(out.files).toEqual([{ assessment_id: 1, file_id: 1, role: "question" }, { assessment_id: 2, file_id: 1, role: "question" }]);
   expect(out.fk).toBe(1);
   expect(out.fkCheck).toBe(0);
-  for (const t of ["attempts", "answers", "attempt_events"]) expect(out.tables).toContain(t);
+  for (const t of ["attempts", "answers", "attempt_events", "question_answers", "question_scores"]) expect(out.tables).toContain(t);
   expect(out.attemptsAfterDelete).toBe(0);
   expect(out.filesAfterDelete).toBe(1);
   fs.rmSync(dir, { recursive: true, force: true });

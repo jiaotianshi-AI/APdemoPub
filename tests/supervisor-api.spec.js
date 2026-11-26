@@ -1,6 +1,6 @@
 // 督导者接口：测试记录、PDF 上传下载、权限
 const { test, expect } = require("@playwright/test");
-const { H, uid, makeUser, linkSupervisor, loginCtx, uploadPdf, pdf, state, ANON } = require("./helpers");
+const { H, uid, makeUser, linkSupervisor, loginCtx, uploadPdf, pdf, state, ANON, gradeAll } = require("./helpers");
 
 const WALL = "2031-03-15T15:00";
 const START = "2031-03-01";
@@ -40,6 +40,9 @@ test("新建测试：选多个学生就为每个学生各生成一条；共用�
     expect(a.unitStartDate).toBe(START);
     expect(a.questionFiles.map((f) => f.id)).toEqual([f1.id, f2.id]);
     expect(a.questionFiles[0].name).toBe("题目 一.pdf");
+    expect(a.questionFiles.map((f) => f.label)).toEqual(["Q1", "Q2"]);
+    expect(a.questionFiles.map((f) => [f.answerFile, f.score])).toEqual([[null, null], [null, null]]);
+    expect([a.scoredCount, a.questionCount, a.scoreAverage]).toEqual([0, 2, null]);
     expect(a.answerFiles).toEqual([]);
   }
   expect(new Set(made.map((a) => a.studentId))).toEqual(new Set(students.map((s) => s.id)));
@@ -149,29 +152,125 @@ test("修改待测试：时间、科目、单元、开始日期、题目文件�
   await ctx.dispose();
 });
 
-test("评分与答题文件：录入 1–5 分后变为已评分；已评分只能改分数和答题文件", async ({ playwright, baseURL }) => {
+test("每题回答 PDF 与评分：每题都评完才算出汇总评分并变为已评分；清空任一题的评分会退回", async ({ playwright, baseURL }) => {
+  const { students, ctx } = await setup(playwright, baseURL, 1);
+  const q1 = await uploadPdf(ctx, "q1.pdf"), q2 = await uploadPdf(ctx, "q2.pdf"), q3 = await uploadPdf(ctx, "q3.pdf");
+  const ans1 = await uploadPdf(ctx, "回答Q1.pdf"), ans3 = await uploadPdf(ctx, "回答Q3.pdf");
+  const [a] = await create(ctx, [students[0].id], [q1.id, q2.id, q3.id]);
+  const patch = (data) => ctx.patch(`/api/supervisor/assessments/${a.id}`, { headers: H, data });
+  const body = async (r) => (await r.json()).assessment;
+
+  // 回答 PDF 可以为空：只给 Q1、Q3 上传
+  let u = await body(await patch({ questions: [{ questionFileId: q1.id, answerFileId: ans1.id }, { questionFileId: q3.id, answerFileId: ans3.id }] }));
+  expect(u.questionFiles.map((q) => [q.label, q.answerFile && q.answerFile.name, q.score])).toEqual([["Q1", "回答Q1.pdf", null], ["Q2", null, null], ["Q3", "回答Q3.pdf", null]]);
+  expect(u.status).toBe("scheduled");
+
+  // 评分校验：每题 1–5 的整数或 null
+  for (const bad of [0, 6, 3.5, "4", true]) expect((await patch({ questions: [{ questionFileId: q1.id, score: bad }] })).status(), String(bad)).toBe(422);
+
+  // 只评一部分：汇总为空，状态不变
+  u = await body(await patch({ questions: [{ questionFileId: q1.id, score: 5 }, { questionFileId: q2.id, score: 3 }] }));
+  expect([u.status, u.score, u.scoredCount, u.questionCount, u.scoreAverage]).toEqual(["scheduled", null, 2, 3, 4]);
+  // 评完最后一题：汇总评分 = 平均值四舍五入；(5+3+4)/3 = 4.0 → 4
+  u = await body(await patch({ questions: [{ questionFileId: q3.id, score: 4 }] }));
+  expect([u.status, u.score, u.scoredCount, u.scoreAverage]).toEqual(["graded", 4, 3, 4]);
+  expect(u.gradedAt).toBeTruthy();
+  // 修改单题评分，汇总随之重新计算：(5+3+5)/3 = 4.33 → 4；(5+5+5)/3 → 5
+  u = await body(await patch({ questions: [{ questionFileId: q3.id, score: 5 }] }));
+  expect([u.status, u.score]).toEqual(["graded", 4]);
+  u = await body(await patch({ questions: [{ questionFileId: q2.id, score: 5 }] }));
+  expect([u.status, u.score]).toEqual(["graded", 5]);
+  // 已评分后仍可改每题的回答文件；同一个文件不能给两道题
+  expect((await patch({ questions: [{ questionFileId: q2.id, answerFileId: ans1.id }] })).status()).toBe(422);
+  const ans2 = await uploadPdf(ctx, "回答Q2.pdf");
+  u = await body(await patch({ questions: [{ questionFileId: q2.id, answerFileId: ans2.id }] }));
+  expect([u.status, u.score, u.questionFiles[1].answerFile.name]).toEqual(["graded", 5, "回答Q2.pdf"]);
+  await ctx.dispose();
+});
+
+test("汇总评分公式：平均值四舍五入（x.5 进位）", async ({ playwright, baseURL }) => {
+  const { summarize } = require("../server/scoring");
+  const cases = [
+    [[5, 5, 5], 5], [[1, 1, 1], 1], [[5, 3, 4], 4], [[5, 4], 5], [[4, 4, 5], 4], [[4, 5, 5], 5], [[1, 2], 2], [[2, 3, 3, 3], 3], [[1, 2, 2, 2], 2], [[3], 3]
+  ];
+  for (const [scores, expected] of cases) expect(summarize(scores).overall, JSON.stringify(scores)).toBe(expected);
+  expect(summarize([5, null, 3]).overall).toBeNull();
+  expect(summarize([5, null, 3]).average).toBe(4);
+  expect(summarize([null, null]).average).toBeNull();
+  expect(summarize([]).overall).toBeNull();
+  expect(summarize([2, 3]).overall).toBe(3); // 2.5 → 3
+});
+
+test("评分的撤销、校验和边界：清空评分退回状态；同一文件不能给两道题；不属于这场测试的题目被拒绝", async ({ playwright, baseURL }) => {
+  const { students, ctx } = await setup(playwright, baseURL, 1);
+  const q1 = await uploadPdf(ctx, "q1.pdf"), q2 = await uploadPdf(ctx, "q2.pdf"), other = await uploadPdf(ctx, "other.pdf");
+  const ans = await uploadPdf(ctx, "ans.pdf");
+  const [a] = await create(ctx, [students[0].id], [q1.id, q2.id]);
+  const patch = (data) => ctx.patch(`/api/supervisor/assessments/${a.id}`, { headers: H, data });
+  expect((await gradeAll(ctx, a, [4, 4])).status()).toBe(200);
+  let cur = (await (await ctx.get(`/api/supervisor/students/${students[0].id}/assessments`)).json()).assessments[0];
+  expect([cur.status, cur.score]).toEqual(["graded", 4]);
+  // 清空一题的评分 → 汇总为空，退回“待测试”（没有学生答卷）
+  let res = await patch({ questions: [{ questionFileId: q2.id, score: null }] });
+  cur = (await res.json()).assessment;
+  expect([cur.status, cur.score, cur.gradedAt, cur.scoredCount]).toEqual(["scheduled", null, null, 1]);
+  // 再评完 → 已评分
+  cur = (await (await patch({ questions: [{ questionFileId: q2.id, score: 5 }] })).json()).assessment;
+  expect([cur.status, cur.score]).toEqual(["graded", 5]); // (4+5)/2 = 4.5 → 5
+
+  expect((await patch({ questions: [{ questionFileId: other.id, score: 3 }] })).status()).toBe(422); // 不是这场测试的题
+  expect((await patch({ questions: [{ questionFileId: q1.id, score: 3 }, { questionFileId: q1.id, score: 4 }] })).status()).toBe(422); // 重复
+  expect((await patch({ questions: [] })).status()).toBe(422);
+  expect((await patch({ questions: "x" })).status()).toBe(422);
+  expect((await patch({ questions: [{ questionFileId: q1.id, bogus: 1 }] })).status()).toBe(422);
+  expect((await patch({ questions: [{ questionFileId: q1.id, answerFileId: 99999999 }] })).status()).toBe(422);
+  // 同一个文件不能同时给两道题
+  expect((await patch({ questions: [{ questionFileId: q1.id, answerFileId: ans.id }, { questionFileId: q2.id, answerFileId: ans.id }] })).status()).toBe(422);
+  // 旧的整体评分、整体答题文件的字段已经不再支持
+  expect((await patch({ score: 4 })).status()).toBe(409);
+  expect((await patch({ answerFileIds: [ans.id] })).status()).toBe(409);
+  // 换掉回答文件：旧文件没有别处使用就被删除
+  await patch({ questions: [{ questionFileId: q1.id, answerFileId: ans.id }] });
+  const ans2 = await uploadPdf(ctx, "ans2.pdf");
+  await patch({ questions: [{ questionFileId: q1.id, answerFileId: ans2.id }] });
+  expect((await ctx.get(`/api/supervisor/files/${ans.id}`)).status()).toBe(404);
+  cur = (await (await patch({ questions: [{ questionFileId: q1.id, answerFileId: null }] })).json()).assessment;
+  expect(cur.questionFiles[0].answerFile).toBeNull();
+  expect((await ctx.get(`/api/supervisor/files/${ans2.id}`)).status()).toBe(404);
+  await ctx.dispose();
+});
+
+test("修改待测试时移除某道题：它的回答文件和评分一并清除", async ({ playwright, baseURL }) => {
+  const { students, ctx } = await setup(playwright, baseURL, 1);
+  const q1 = await uploadPdf(ctx, "q1.pdf"), q2 = await uploadPdf(ctx, "q2.pdf");
+  const ans2 = await uploadPdf(ctx, "ans2.pdf");
+  const [a] = await create(ctx, [students[0].id], [q1.id, q2.id]);
+  const patch = (data) => ctx.patch(`/api/supervisor/assessments/${a.id}`, { headers: H, data });
+  await patch({ questions: [{ questionFileId: q2.id, answerFileId: ans2.id, score: 3 }] });
+  const res = await patch({ questionFileIds: [q1.id] });
+  const u = (await res.json()).assessment;
+  expect(u.questionFiles.map((q) => q.id)).toEqual([q1.id]);
+  expect(u.scoredCount).toBe(0);
+  expect((await ctx.get(`/api/supervisor/files/${ans2.id}`)).status()).toBe(404);
+  const { db } = require("../server/db");
+  expect(db.prepare("SELECT COUNT(*) AS n FROM question_scores WHERE assessment_id = ?").get(a.id).n).toBe(0);
+  expect(db.prepare("SELECT COUNT(*) AS n FROM question_answers WHERE assessment_id = ?").get(a.id).n).toBe(0);
+  await ctx.dispose();
+});
+
+test("旧数据：只有整体分数、没有逐题评分的已评分测试，原分数保留；只改回答文件不会动它", async ({ playwright, baseURL }) => {
   const { students, ctx } = await setup(playwright, baseURL, 1);
   const q = await uploadPdf(ctx, "q.pdf");
-  const ans1 = await uploadPdf(ctx, "答题1.pdf");
-  const ans2 = await uploadPdf(ctx, "答题2.pdf");
   const [a] = await create(ctx, [students[0].id], [q.id]);
-  const patch = (data) => ctx.patch(`/api/supervisor/assessments/${a.id}`, { headers: H, data });
-
-  let res = await patch({ answerFileIds: [ans1.id, ans2.id] });
-  expect((await res.json()).assessment.answerFiles.map((f) => f.name)).toEqual(["答题1.pdf", "答题2.pdf"]);
-  for (const bad of [0, 6, 3.5, "4", null, true]) expect((await patch({ score: bad })).status(), String(bad)).toBe(422);
-  res = await patch({ score: 4 });
-  let u = (await res.json()).assessment;
+  const { db } = require("../server/db");
+  db.prepare("UPDATE assessments SET status = 'graded', score = 4, graded_at = ? WHERE id = ?").run(new Date().toISOString(), a.id);
+  const cur = (await (await ctx.get(`/api/supervisor/students/${students[0].id}/assessments`)).json()).assessments[0];
+  expect([cur.status, cur.score, cur.scoredCount]).toEqual(["graded", 4, 0]);
+  const ans = await uploadPdf(ctx, "补传.pdf");
+  const res = await ctx.patch(`/api/supervisor/assessments/${a.id}`, { headers: H, data: { questions: [{ questionFileId: q.id, answerFileId: ans.id }] } });
+  const u = (await res.json()).assessment;
   expect([u.status, u.score]).toEqual(["graded", 4]);
-  expect(u.gradedAt).toBeTruthy();
-
-  res = await patch({ score: 5 });
-  expect((await res.json()).assessment.score).toBe(5);
-  expect((await patch({ subject: "x" })).status()).toBe(409);
-  expect((await patch({ scheduledWall: "2031-05-05T10:00" })).status()).toBe(409);
-  expect((await patch({ questionFileIds: [q.id] })).status()).toBe(409);
-  res = await patch({ answerFileIds: [ans2.id] });
-  expect((await res.json()).assessment.answerFiles.map((f) => f.name)).toEqual(["答题2.pdf"]);
+  expect(u.questionFiles[0].answerFile.name).toBe("补传.pdf");
   await ctx.dispose();
 });
 
@@ -181,7 +280,7 @@ test("删除：只有待测试能删；共用的题目文件在别的学生还�
   const [a1, a2] = await create(ctx, students.map((s) => s.id), [q.id]);
   expect((await ctx.delete(`/api/supervisor/assessments/${a1.id}`, { headers: H })).status()).toBe(200);
   expect((await ctx.get(`/api/supervisor/files/${q.id}`)).status()).toBe(200); // 另一条还在用
-  await ctx.patch(`/api/supervisor/assessments/${a2.id}`, { headers: H, data: { score: 3 } });
+  await gradeAll(ctx, a2, [3]);
   expect((await ctx.delete(`/api/supervisor/assessments/${a2.id}`, { headers: H })).status()).toBe(409); // 已评分不能删
   const list = await (await ctx.get(`/api/supervisor/students/${students[1].id}/assessments`)).json();
   expect(list.assessments).toHaveLength(1);
@@ -201,7 +300,7 @@ test("重测：复制科目、单元和题目文件，生成新的待测试记�
   const retake = (id, data) => ctx.post(`/api/supervisor/assessments/${id}/retake`, { headers: H, data });
 
   expect((await retake(a.id, { scheduledWall: "2031-04-12T15:00" })).status()).toBe(409); // 待测试不能重测
-  await ctx.patch(`/api/supervisor/assessments/${a.id}`, { headers: H, data: { answerFileIds: [ans.id], score: 2 } });
+  await gradeAll(ctx, a, [2], [{ answerFileId: ans.id }]);
   expect((await retake(a.id, { scheduledWall: "2020-01-01T10:00" })).status()).toBe(422);
   expect((await retake(a.id, {})).status()).toBe(422);
 
@@ -213,15 +312,16 @@ test("重测：复制科目、单元和题目文件，生成新的待测试记�
   expect([n.subject, n.unit, n.unitStartDate, n.scheduledWall]).toEqual(["AP Biology", "Unit 2", START, "2031-04-12T15:00"]);
   expect(n.questionFiles.map((f) => f.id)).toEqual([q.id]);
   expect(n.answerFiles).toEqual([]);
+  expect(n.questionFiles.map((f) => [f.answerFile, f.score])).toEqual([[null, null]]); // 回答和评分都不复制
 
   const list = (await (await ctx.get(`/api/supervisor/students/${students[0].id}/assessments`)).json()).assessments;
   expect(list).toHaveLength(2);
   const old = list.find((x) => x.id === a.id);
   expect([old.status, old.score]).toEqual(["graded", 2]); // 原记录不变
-  expect(old.answerFiles.map((f) => f.id)).toEqual([ans.id]);
+  expect(old.questionFiles.map((f) => [f.answerFile && f.answerFile.id, f.score])).toEqual([[ans.id, 2]]);
 
   // 对重测记录评分后可以再重测，次数递增
-  await ctx.patch(`/api/supervisor/assessments/${n.id}`, { headers: H, data: { score: 4 } });
+  await gradeAll(ctx, n, [4]);
   const r2 = (await (await retake(n.id, { scheduledWall: "2031-05-10T15:00" })).json()).assessments[0];
   expect(r2.attemptNo).toBe(3);
   await ctx.dispose();
@@ -235,7 +335,7 @@ test("权限：只能看到和操作自己关联的学生；其他角色不能�
 
   expect((await (await b.ctx.get("/api/supervisor/students")).json()).students.map((s) => s.id)).toEqual([b.students[0].id]);
   expect((await b.ctx.get(`/api/supervisor/students/${a.students[0].id}/assessments`)).status()).toBe(404);
-  expect((await b.ctx.patch(`/api/supervisor/assessments/${asm.id}`, { headers: H, data: { score: 1 } })).status()).toBe(404);
+  expect((await b.ctx.patch(`/api/supervisor/assessments/${asm.id}`, { headers: H, data: { questions: [{ questionFileId: f.id, score: 1 }] } })).status()).toBe(404);
   expect((await b.ctx.delete(`/api/supervisor/assessments/${asm.id}`, { headers: H })).status()).toBe(404);
   expect((await b.ctx.post(`/api/supervisor/assessments/${asm.id}/retake`, { headers: H, data: { scheduledWall: WALL } })).status()).toBe(404);
   expect((await b.ctx.post("/api/supervisor/assessments", { headers: H, data: createBody([a.students[0].id], [f.id]) })).status()).toBe(404);

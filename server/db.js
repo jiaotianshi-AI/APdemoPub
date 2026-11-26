@@ -34,7 +34,7 @@ function assessmentsDdl(name) {
 );`;
 }
 
-// 数据库版本迁移。user_version：0 = 最初版本（status 只有 scheduled/graded，没有 duration_minutes）；1 = 加入测试流程
+// 数据库版本迁移。user_version：0 = 最初版本（status 只有 scheduled/graded，没有 duration_minutes）；1 = 加入测试流程；2 = 加入每题回答与评分
 function migrate() {
   const hasAssessments = !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'assessments'").get();
   const version = db.prepare('PRAGMA user_version').get().user_version;
@@ -130,6 +130,19 @@ CREATE TABLE IF NOT EXISTS attempt_events (
   type TEXT NOT NULL CHECK (type IN ('leave','return')),
   reason TEXT
 );
+-- 每道题的回答 PDF（扫描件）和评分。question_file_id 是该测试里那道题的 PDF（assessment_files 里 role = 'question' 的文件）
+CREATE TABLE IF NOT EXISTS question_answers (
+  assessment_id INTEGER NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
+  question_file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  PRIMARY KEY (assessment_id, question_file_id)
+);
+CREATE TABLE IF NOT EXISTS question_scores (
+  assessment_id INTEGER NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
+  question_file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  score INTEGER NOT NULL CHECK (score BETWEEN 1 AND 5),
+  PRIMARY KEY (assessment_id, question_file_id)
+);
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ts TEXT NOT NULL,
@@ -140,7 +153,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 `);
 
-if (startVersion < 1) db.exec('PRAGMA user_version = 1');
+if (startVersion < 2) db.exec('PRAGMA user_version = 2'); // 2 = 加入每题回答 PDF 与评分（只新增表，不改旧数据）
 
 // 事务辅助：fn 抛异常则回滚
 function transaction(fn) {

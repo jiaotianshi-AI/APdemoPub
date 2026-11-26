@@ -88,24 +88,14 @@
     </form>
   </dialog>
 
-  <!-- 答题与分数 -->
+  <!-- 每题回答与评分 -->
   <dialog id="score-dialog" aria-labelledby="score-title">
     <form id="score-form" novalidate>
-      <h2 id="score-title">答题与分数</h2>
+      <h2 id="score-title">答题与评分</h2>
       <p id="score-summary" class="muted"></p>
-      <div class="field">
-        <span class="label" id="a-label">学生答题内容（PDF，可多个）</span>
-        <div id="a-files" aria-labelledby="a-label"></div>
-      </div>
-      <div class="field">
-        <label for="s-score">测试分数（1–5 的整数）</label>
-        <select id="s-score">
-          <option value="">未评分</option>
-          <option value="1">1</option><option value="2">2</option><option value="3">3</option>
-          <option value="4">4</option><option value="5">5</option>
-        </select>
-        <span class="hint">录入分数后，这条测试的状态会变为“已评分”。</span>
-      </div>
+      <p class="hint" id="formula-hint"></p>
+      <div id="grade-rows"></div>
+      <p id="grade-overall" class="overall" role="status"></p>
       <p id="score-error" class="msg error" role="alert" hidden></p>
       <div class="dialog-actions">
         <button type="button" class="btn" data-close>取消</button>

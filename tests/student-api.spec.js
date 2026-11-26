@@ -151,14 +151,24 @@ test("提交：状态变为已提交；不能再改；学生能看到题目和�
   expect(list.questionFiles.map((q) => q.name)).toEqual(["题1.pdf", "题2.pdf"]);
   expect((await tctx.get(`/api/student/files/${qs[0].id}`)).status()).toBe(200);
 
-  // 督导者上传学生的纸质答卷并评分，学生才看到分数和答题文件
-  const scan = await uploadPdfAs(sctx, "扫描.pdf");
-  const graded = await sctx.patch(`/api/supervisor/assessments/${asm.id}`, { headers: H, data: { answerFileIds: [scan.id], score: 4 } });
-  expect((await graded.json()).assessment.status).toBe("graded");
+  // 督导者给每道题上传回答 PDF 并评分；没评完之前学生看不到任何分数，评完（已评分）后才看到每题评分和汇总评分
+  const scan1 = await uploadPdfAs(sctx, "Q1回答.pdf");
+  const part = await sctx.patch(`/api/supervisor/assessments/${asm.id}`, { headers: H, data: { questions: [{ questionFileId: qs[0].id, answerFileId: scan1.id, score: 5 }] } });
+  expect((await part.json()).assessment.status).toBe("submitted"); // 只评了一题
+  let mid = (await (await tctx.get("/api/student/assessments")).json()).assessments[0];
+  expect([mid.status, mid.score]).toEqual(["submitted", null]);
+  expect(mid.questionFiles.map((q) => q.score)).toEqual([null, null]); // 评分还不可见
+  expect(mid.questionFiles[0].answerFile.name).toBe("Q1回答.pdf"); // 回答 PDF 提交后即可见
+  expect((await tctx.get(`/api/student/files/${scan1.id}`)).status()).toBe(200);
+
+  const graded = await sctx.patch(`/api/supervisor/assessments/${asm.id}`, { headers: H, data: { questions: [{ questionFileId: qs[1].id, score: 4 }] } });
+  expect((await graded.json()).assessment.status).toBe("graded"); // (5+4)/2 = 4.5 → 5
   const after = (await (await tctx.get("/api/student/assessments")).json()).assessments[0];
-  expect([after.status, after.score]).toEqual(["graded", 4]);
-  expect(after.answerFiles.map((f) => f.name)).toEqual(["扫描.pdf"]);
-  expect((await tctx.get(`/api/student/files/${scan.id}`)).status()).toBe(200);
+  expect([after.status, after.score]).toEqual(["graded", 5]);
+  expect(after.questionFiles.map((q) => [q.label, q.score])).toEqual([["Q1", 5], ["Q2", 4]]);
+  expect(after.questionFiles[1].answerFile).toBeNull();
+  const d2 = await (await tctx.get(`/api/student/assessments/${asm.id}`)).json();
+  expect(d2.questions.map((q) => q.score)).toEqual([5, 4]);
   await tctx.dispose();
 });
 async function uploadPdfAs(ctx, name) { return uploadPdf(ctx, name, name); }
@@ -232,7 +242,7 @@ test("督导者：测试进行中不能修改/删除；提交后只能改分数�
   const mid = await patch({ subject: "x" });
   expect(mid.status()).toBe(409);
   expect((await mid.json()).error).toBe("IN_PROGRESS");
-  expect((await patch({ score: 3 })).status()).toBe(409);
+  expect((await patch({ questions: [{ questionFileId: qs[0].id, score: 3 }] })).status()).toBe(409);
   expect((await sctx.delete(`/api/supervisor/assessments/${asm.id}`, { headers: H })).status()).toBe(409);
   const live = (await (await sctx.get(`/api/supervisor/students/${(await (await sctx.get("/api/supervisor/students")).json()).students[0].id}/assessments`)).json()).assessments[0];
   expect(live.status).toBe("in_progress");
@@ -246,8 +256,9 @@ test("督导者：测试进行中不能修改/删除；提交后只能改分数�
   const ai = await sctx.post(`/api/supervisor/assessments/${asm.id}/ai-score`, { headers: H, data: { questionFileId: qs[0].id } });
   expect(ai.status()).toBe(501);
   expect((await ai.json()).error).toBe("AI_SCORING_NOT_AVAILABLE");
-  const g = await patch({ score: 5 });
+  const g = await patch({ questions: qs.map((q) => ({ questionFileId: q.id, score: 5 })) });
   expect((await g.json()).assessment.status).toBe("graded");
+  expect((await patch({ score: 5 })).status()).toBe(409); // 整体评分字段已不再支持
 
   // 重测复制时长
   const re = await sctx.post(`/api/supervisor/assessments/${asm.id}/retake`, { headers: H, data: { scheduledWall: "2031-06-01T10:00" } });
@@ -282,4 +293,22 @@ test("学生页的“当前测试”：测试中的优先；已过预定时间�
   o = (await (await tctx.get("/api/student/overview")).json()).next;
   expect(o).toBeNull(); // 已提交的不再作为“下一场测试”
   await tctx.dispose();
+});
+
+test("回答文字：学生用屏幕输入作答时，督导者的每道题都带有回答文字；纸质作答为空", async ({ playwright, baseURL }) => {
+  const { tctx, sctx, qs, asm, stu } = await scenario(playwright, baseURL);
+  const list = async () => (await (await sctx.get(`/api/supervisor/students/${stu.id}/assessments`)).json()).assessments[0];
+  expect((await list()).questionFiles.map((q) => q.answerText)).toEqual([null, null]); // 还没作答
+  await startOk(tctx, asm.id, "typed");
+  await save(tctx, asm.id, qs[0].id, "第一题的回答文字\n第二行");
+  expect((await list()).questionFiles.map((q) => q.answerText)).toEqual(["第一题的回答文字\n第二行", ""]); // 第二题没填写
+  await submit(tctx, asm.id);
+  expect((await list()).questionFiles[0].answerText).toBe("第一题的回答文字\n第二行");
+  await tctx.dispose();
+
+  const p = await scenario(playwright, baseURL);
+  await startOk(p.tctx, p.asm.id, "paper");
+  const pl = (await (await p.sctx.get(`/api/supervisor/students/${p.stu.id}/assessments`)).json()).assessments[0];
+  expect(pl.questionFiles.map((q) => q.answerText)).toEqual([null, null]); // 纸质作答没有回答文字
+  await p.tctx.dispose();
 });

@@ -38,4 +38,9 @@ async function uploadPdf(ctx, name, text) {
   if (res.status() !== 201) throw new Error("上传失败 " + res.status() + " " + (await res.text()));
   return (await res.json()).file;
 }
-module.exports = Object.assign(module.exports, { makeUser, linkSupervisor, loginCtx, pdf, uploadPdf });
+// 给一场测试的每道题都打分（scores 按题号顺序），返回 PATCH 的响应
+async function gradeAll(ctx, assessment, scores, extra) {
+  const questions = assessment.questionFiles.map((q, i) => ({ questionFileId: q.id, score: scores[i], ...(extra && extra[i] ? extra[i] : {}) }));
+  return ctx.patch(`/api/supervisor/assessments/${assessment.id}`, { headers: H, data: { questions } });
+}
+module.exports = Object.assign(module.exports, { makeUser, linkSupervisor, loginCtx, pdf, uploadPdf, gradeAll });

@@ -433,7 +433,7 @@
     var typed = detail.attempt && detail.attempt.method === "typed";
     qs.forEach(function (q) {
       var box = el("div", "review-q");
-      box.appendChild(el("h3", "", t("exam.q", { n: q.no, total: qs.length })));
+      box.appendChild(el("h3", "", q.label + (graded && q.score ? "　" + t("exam.review.qScore", { s: q.score }) : "")));
       var link = el("a", "", q.name);
       link.href = "/api/student/files/" + q.id;
       link.target = "_blank";
@@ -444,12 +444,20 @@
         var txt = answers[q.id];
         box.appendChild(el("div", "answer-text", txt && txt.trim() ? txt : t("exam.review.noAnswer")));
       }
+      if (q.answerFile) {
+        var sc = el("a", "", t("exam.review.answerPdf", { name: q.answerFile.name }));
+        sc.href = "/api/student/files/" + q.answerFile.id;
+        sc.target = "_blank";
+        sc.rel = "noopener noreferrer";
+        box.appendChild(sc);
+      }
       panel.appendChild(box);
     });
     var af = detail.answerFiles || [];
     if (af.length) {
       var abox = el("div", "review-q");
       abox.appendChild(el("h3", "", t("exam.review.paper")));
+      abox.querySelector("h3").textContent = t("exam.review.paperOther");
       af.forEach(function (f) {
         var l = el("a", "", f.name);
         l.href = "/api/student/files/" + f.id;

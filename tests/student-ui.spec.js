@@ -249,9 +249,9 @@ test("离开页面会被记录（次数和时长），为打开题目 PDF 而离
   await page.evaluate(() => document.querySelector(".pdf-foot a").addEventListener("click", (e) => e.preventDefault()));
   await page.click(".pdf-foot a"); // 点“在新标签页打开本题 PDF”（已阻止真正跳转）
   await hide(true); await hide(false);
-  await expect.poll(async () => (await supAttempt(s.sctx, s.asm.id)).attempt.leaveCount).toBe(1);
+  await expect.poll(async () => (await supAttempt(s.sctx, s.asm.id)).attempt.pdfLeaves).toBe(1); // 两次离开的记录都到达后再检查
   const v = await supAttempt(s.sctx, s.asm.id);
-  expect(v.attempt.pdfLeaves).toBe(1);
+  expect(v.attempt.leaveCount).toBe(1);
 });
 
 test("回顾：已评分的测试显示分数、题目、我的答案和纸质答卷", async ({ page, playwright, baseURL }) => {
@@ -261,20 +261,24 @@ test("回顾：已评分的测试显示分数、题目、我的答案和纸质�
   await stuCtx.put(`/api/student/assessments/${s.asm.id}/answers/${s.qs[0].id}`, { headers: H, data: { text: "我的第一题答案" } });
   await stuCtx.post(`/api/student/assessments/${s.asm.id}/submit`, { headers: H, data: {} });
   const scan = await uploadPdf(s.sctx, "扫描答卷.pdf", "scan");
-  await s.sctx.patch(`/api/supervisor/assessments/${s.asm.id}`, { headers: H, data: { answerFileIds: [scan.id], score: 5 } });
+  // 督导者给每道题评分：Q1=5（附回答 PDF）、Q2=4 → (5+4)/2 = 4.5 → 汇总 5
+  await s.sctx.patch(`/api/supervisor/assessments/${s.asm.id}`, { headers: H, data: { questions: [{ questionFileId: s.qs[0].id, answerFileId: scan.id, score: 5 }, { questionFileId: s.qs[1].id, score: 4 }] } });
 
   await page.goto(`/exam?id=${s.asm.id}&lang=zh`);
   await expect(page.locator("h1")).toHaveText("测试回顾");
-  await expect(page.locator(".score-big")).toHaveText("分数：5 / 5");
+  await expect(page.locator(".score-big")).toHaveText("汇总评分：5 / 5");
   await expect(page.locator(".review-q").first()).toContainText("题1.pdf");
   await expect(page.locator(".review-q").first()).toContainText("我的第一题答案");
   await expect(page.locator(".review-q").nth(1)).toContainText("（没有填写）");
-  await expect(page.locator("#exam-root")).toContainText("纸质答卷（扫描件）");
-  const href = await page.getByRole("link", { name: "扫描答卷.pdf" }).getAttribute("href");
+  await expect(page.locator(".review-q").first()).toContainText("Q1");
+  await expect(page.locator(".review-q").first()).toContainText("评分 5 / 5");
+  await expect(page.locator(".review-q").nth(1)).toContainText("评分 4 / 5");
+  const href = await page.getByRole("link", { name: /回答 PDF：扫描答卷.pdf/ }).getAttribute("href");
   expect((await page.request.get(href)).status()).toBe(200);
   await page.click('.lang-btn[data-lang="en"]');
   await expect(page.locator("h1")).toHaveText("Test review");
-  await expect(page.locator(".score-big")).toHaveText("Score: 5 / 5");
+  await expect(page.locator(".score-big")).toHaveText("Overall score: 5 / 5");
+  await expect(page.locator(".review-q").first()).toContainText("Score 5 / 5");
 });
 
 test("英文界面：测试页的文字都是英文", async ({ page, playwright, baseURL }) => {

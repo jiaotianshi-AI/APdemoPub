@@ -3,6 +3,8 @@
   "use strict";
 
   var STATUS = { scheduled: "待测试", in_progress: "测试中", submitted: "已提交，待评分", graded: "已评分" };
+  // 汇总评分公式说明（计算本身在服务器 server/scoring.js；要改公式时两处一起改）
+  var FORMULA_TEXT = "汇总评分 = 各题评分的平均值，四舍五入到整数（x.5 进位）。每道题都有评分后自动算出，状态变为“已评分”；任何一题评分为空，则不计算汇总。每题评分为 1–5 的整数。";
   var MAX_FILES = 10;
   var MAX_BYTES = 20 * 1024 * 1024;
   var state = { students: [], currentId: null, assessments: [] };
@@ -210,6 +212,51 @@
     return b;
   }
 
+  function overallText(a) {
+    if (a.score) {
+      var avg = a.scoreAverage !== null && a.scoreAverage !== undefined && a.scoredCount === a.questionCount ? "（平均 " + (Math.round(a.scoreAverage * 100) / 100) + "）" : "";
+      return a.score + " / 5" + avg;
+    }
+    return a.questionCount ? "— （已评 " + a.scoredCount + " / " + a.questionCount + " 题）" : "—";
+  }
+
+  // 每道题一行：题号 · 问题 PDF · 回答 PDF（可为空）· 评分（可为空）
+  function questionTable(a) {
+    var wrap = el("div", "q-table");
+    var head = el("div", "q-row q-head");
+    ["题号", "问题 PDF", "回答文字", "回答 PDF", "评分"].forEach(function (h) { head.appendChild(el("span", "", h)); });
+    wrap.appendChild(head);
+    a.questionFiles.forEach(function (q) {
+      var row = el("div", "q-row");
+      row.appendChild(el("span", "q-label", q.label));
+      var ql = el("a", "file-link", q.name);
+      ql.href = "/api/supervisor/files/" + q.id;
+      ql.target = "_blank";
+      ql.rel = "noopener noreferrer";
+      ql.setAttribute("aria-label", q.label + " 问题：" + q.name + "（在新标签页打开）");
+      row.appendChild(ql);
+      // 回答文字：学生用屏幕输入作答时才有；纸质作答或还没作答显示 —
+      var tcell = el("span");
+      if (q.answerText === null || q.answerText === undefined) tcell.appendChild(el("span", "muted", "—"));
+      else if (q.answerText.trim() === "") tcell.appendChild(el("span", "muted", "（没有填写）"));
+      else { var snip = el("div", "answer-snippet", q.answerText); snip.title = q.answerText; tcell.appendChild(snip); }
+      row.appendChild(tcell);
+      var cell = el("span");
+      if (q.answerFile) {
+        var al = el("a", "file-link", q.answerFile.name);
+        al.href = "/api/supervisor/files/" + q.answerFile.id;
+        al.target = "_blank";
+        al.rel = "noopener noreferrer";
+        al.setAttribute("aria-label", q.label + " 回答：" + q.answerFile.name + "（在新标签页打开）");
+        cell.appendChild(al);
+      } else cell.appendChild(el("span", "muted", "—"));
+      row.appendChild(cell);
+      row.appendChild(el("span", q.score ? "q-score" : "muted", q.score ? q.score + " / 5" : "—"));
+      wrap.appendChild(row);
+    });
+    return wrap;
+  }
+
   function card(a) {
     var c = el("article", "test-card");
     var head = el("div", "test-head");
@@ -228,26 +275,26 @@
     item("测试时间", fmtWall(a.scheduledWall));
     item("测试时长", a.durationMinutes + " 分钟");
     item("本单元开始学习", fmtDate(a.unitStartDate));
-    item("测试分数", a.score ? a.score + " / 5" : "—", a.score ? "score" : "");
+    item("汇总评分", overallText(a), a.score ? "score" : "");
     c.appendChild(meta);
-    c.appendChild(fileRow("测试题目", a.questionFiles));
-    c.appendChild(fileRow("学生答题（扫描件）", a.answerFiles));
+    c.appendChild(questionTable(a));
+    if (a.answerFiles && a.answerFiles.length) c.appendChild(fileRow("其他答题文件（旧数据）", a.answerFiles));
     if (a.attempt) c.appendChild(el("p", "attempt-line", attemptLine(a.attempt)));
 
     var act = el("div", "card-actions");
     if (a.status === "scheduled") {
       act.appendChild(btn("修改", a, function (x) { openTestDialog("edit", x); }));
-      act.appendChild(btn("答题与分数", a, openScoreDialog));
+      act.appendChild(btn("答题与评分", a, openScoreDialog));
       act.appendChild(btn("删除", a, askDelete, "danger"));
     } else if (a.status === "in_progress") {
       act.appendChild(btn("查看答题", a, openView));
       act.appendChild(el("span", "muted", "学生正在测试，完成后才能修改。"));
     } else if (a.status === "submitted") {
       act.appendChild(btn("查看学生答题", a, openView));
-      act.appendChild(btn("答题与分数", a, openScoreDialog));
+      act.appendChild(btn("答题与评分", a, openScoreDialog));
     } else {
       act.appendChild(btn("查看学生答题", a, openView));
-      act.appendChild(btn("修改分数", a, openScoreDialog));
+      act.appendChild(btn("修改评分", a, openScoreDialog));
       act.appendChild(btn("重测", a, openRetakeDialog));
     }
     c.appendChild(act);
@@ -318,7 +365,7 @@
       var typed = data.attempt && data.attempt.method === "typed";
       data.questions.forEach(function (q) {
         var box = el("div", "view-q");
-        box.appendChild(el("h3", "", "第 " + q.no + " 题"));
+        box.appendChild(el("h3", "", q.label + (q.score ? "　评分 " + q.score + " / 5" : "")));
         var link = el("a", "file-link", q.name);
         link.href = "/api/supervisor/files/" + q.id;
         link.target = "_blank";
@@ -328,11 +375,18 @@
           if (typed) {
             box.appendChild(el("p", "muted", "学生的答案"));
             box.appendChild(el("div", "answer-text", q.answer && q.answer.trim() ? q.answer : "（没有填写）"));
-          } else box.appendChild(el("p", "muted", "学生选择纸质作答，请在“答题与分数”里上传扫描件。"));
+          } else box.appendChild(el("p", "muted", "学生选择纸质作答，请在“答题与评分”里为这道题上传回答 PDF。"));
+          if (q.answerFile) {
+            var al = el("a", "file-link", "回答 PDF：" + q.answerFile.name);
+            al.href = "/api/supervisor/files/" + q.answerFile.id;
+            al.target = "_blank";
+            al.rel = "noopener noreferrer";
+            box.appendChild(al);
+          }
         }
         var ai = el("button", "btn", "请求 AI 评分（本题）");
         ai.type = "button";
-        ai.setAttribute("aria-label", "请求 AI 评分：第 " + q.no + " 题");
+        ai.setAttribute("aria-label", "请求 AI 评分：" + q.label);
         ai.addEventListener("click", function () { requestAi({ questionFileId: q.id }); });
         box.appendChild(ai);
         qbox.appendChild(box);
@@ -438,30 +492,130 @@
       .then(function () { $("test-submit").disabled = false; });
   });
 
-  /* ---------- 答题与分数 ---------- */
-  var scoreForm = { assessment: null, files: null };
+  /* ---------- 每题的回答 PDF 与评分 ---------- */
+  var gradeForm = { assessment: null, rows: [] };
+
+  // 单个回答 PDF 的选择器：返回 { value(): 文件 id 或 null, busy() }
+  function answerPicker(host, initial, qLabel) {
+    clear(host);
+    var current = initial ? { id: initial.id, name: initial.name } : null;
+    var busy = 0;
+    var line = el("div", "ans-line");
+    var nameEl = el("span", "fname");
+    var rm = el("button", "btn", "移除");
+    rm.type = "button";
+    rm.setAttribute("aria-label", "移除 " + qLabel + " 的回答 PDF");
+    var picker = el("label", "picker-btn", "上传回答 PDF");
+    var input = el("input");
+    input.type = "file";
+    input.accept = "application/pdf,.pdf";
+    input.setAttribute("aria-label", "选择 " + qLabel + " 的回答 PDF");
+    picker.appendChild(input);
+    var note = el("p", "upload-note");
+    note.setAttribute("role", "status");
+    function draw() {
+      nameEl.textContent = current ? current.name : "（暂无，可为空）";
+      nameEl.className = current ? "fname" : "fname muted";
+      rm.hidden = !current;
+      picker.firstChild.textContent = current ? "替换" : "上传回答 PDF";
+    }
+    rm.addEventListener("click", function () { current = null; draw(); });
+    input.addEventListener("change", function () {
+      var f = input.files && input.files[0];
+      input.value = "";
+      if (!f) return;
+      if (!/\.pdf$/i.test(f.name) && f.type !== "application/pdf") { note.textContent = "“" + f.name + "”不是 PDF 文件。"; return; }
+      if (f.size > MAX_BYTES) { note.textContent = "“" + f.name + "”超过 20MB。"; return; }
+      busy += 1;
+      note.textContent = "正在上传 " + f.name + " …";
+      request("POST", "/api/supervisor/files", undefined, { "Content-Type": "application/pdf", "X-File-Name": encodeURIComponent(f.name) }, f)
+        .then(function (data) { current = { id: data.file.id, name: data.file.name }; note.textContent = ""; draw(); })
+        .catch(function (e) { note.textContent = e.message; })
+        .then(function () { busy -= 1; });
+    });
+    line.appendChild(nameEl);
+    line.appendChild(rm);
+    line.appendChild(picker);
+    host.appendChild(line);
+    host.appendChild(note);
+    draw();
+    return { value: function () { return current ? current.id : null; }, busy: function () { return busy > 0; } };
+  }
+
+  function summarizeScores(scores) { // 与服务器 server/scoring.js 的公式一致，只用于预览
+    var have = scores.filter(function (v) { return v !== null; });
+    var n = scores.length, sum = have.reduce(function (a, b) { return a + b; }, 0);
+    return { scored: have.length, total: n, avg: have.length ? sum / have.length : null, overall: n > 0 && have.length === n ? Math.floor((2 * sum + n) / (2 * n)) : null };
+  }
+  function updateOverall() {
+    var scores = gradeForm.rows.map(function (r) { return r.select.value === "" ? null : Number(r.select.value); });
+    var s = summarizeScores(scores);
+    $("grade-overall").textContent = s.overall !== null
+      ? "汇总评分：" + s.overall + " / 5（平均 " + (Math.round(s.avg * 100) / 100) + "）。保存后这场测试的状态为“已评分”。"
+      : "汇总评分：还不能计算（已评 " + s.scored + " / " + s.total + " 题）。";
+  }
+
   function openScoreDialog(a) {
-    scoreForm.assessment = a;
+    gradeForm.assessment = a;
+    gradeForm.rows = [];
     showMsg("score-error", "");
     $("score-summary").textContent = a.subject + " · " + a.unit + "　" + fmtWall(a.scheduledWall);
-    $("s-score").value = a.score ? String(a.score) : "";
-    scoreForm.files = fileList($("a-files"), a.answerFiles, "答题 PDF");
+    $("formula-hint").textContent = FORMULA_TEXT;
+    var host = $("grade-rows");
+    clear(host);
+    a.questionFiles.forEach(function (q) {
+      var box = el("div", "grade-row");
+      var head = el("div", "grade-head");
+      head.appendChild(el("strong", "q-label", q.label));
+      var ql = el("a", "file-link", q.name);
+      ql.href = "/api/supervisor/files/" + q.id;
+      ql.target = "_blank";
+      ql.rel = "noopener noreferrer";
+      ql.setAttribute("aria-label", q.label + " 问题：" + q.name + "（在新标签页打开）");
+      head.appendChild(ql);
+      box.appendChild(head);
+      if (q.answerText !== null && q.answerText !== undefined) {
+        box.appendChild(el("p", "muted", "学生输入的回答文字"));
+        box.appendChild(el("div", "answer-text", q.answerText.trim() ? q.answerText : "（没有填写）"));
+      }
+      var ansHost = el("div", "ans-host");
+      var picker = answerPicker(ansHost, q.answerFile, q.label);
+      box.appendChild(ansHost);
+      var f = el("div", "field");
+      var l = el("label", "", q.label + " 评分");
+      var sel = el("select");
+      sel.id = "score-" + q.id;
+      l.htmlFor = sel.id;
+      var blank = el("option", "", "未评分");
+      blank.value = "";
+      sel.appendChild(blank);
+      for (var i = 1; i <= 5; i++) { var o = el("option", "", String(i)); o.value = String(i); sel.appendChild(o); }
+      sel.value = q.score ? String(q.score) : "";
+      sel.addEventListener("change", updateOverall);
+      f.appendChild(l);
+      f.appendChild(sel);
+      box.appendChild(f);
+      host.appendChild(box);
+      gradeForm.rows.push({ q: q, picker: picker, select: sel });
+    });
+    updateOverall();
     openDialog($("score-dialog"));
-    $("s-score").focus();
+    var first = host.querySelector("select");
+    if (first) first.focus();
   }
+
   $("score-form").addEventListener("submit", function (e) {
     e.preventDefault();
     showMsg("score-error", "");
-    var a = scoreForm.assessment;
-    if (scoreForm.files.busy()) return showMsg("score-error", "文件还在上传，请稍等。");
-    var raw = $("s-score").value;
-    if (a.status === "graded" && !raw) return showMsg("score-error", "已评分的测试不能清除分数，请选择 1–5。");
-    var body = { answerFileIds: scoreForm.files.ids() };
-    if (raw) body.score = Number(raw);
+    if (gradeForm.rows.some(function (r) { return r.picker.busy(); })) return showMsg("score-error", "文件还在上传，请稍等。");
+    var a = gradeForm.assessment;
+    var questions = gradeForm.rows.map(function (r) {
+      return { questionFileId: r.q.id, answerFileId: r.picker.value(), score: r.select.value === "" ? null : Number(r.select.value) };
+    });
     $("score-submit").disabled = true;
-    api("PATCH", "/api/supervisor/assessments/" + a.id, body).then(function () {
+    api("PATCH", "/api/supervisor/assessments/" + a.id, { questions: questions }).then(function (data) {
       closeDialog($("score-dialog"));
-      return loadAssessments().then(function () { setStatus("已保存。"); });
+      return loadAssessments().then(function () { setStatus(data.assessment.status === "graded" ? "已保存，汇总评分 " + data.assessment.score + " / 5。" : "已保存。"); });
     }).catch(function (err) { showMsg("score-error", err.message); })
       .then(function () { $("score-submit").disabled = false; });
   });
@@ -472,7 +626,7 @@
     retakeFor = a;
     showMsg("retake-error", "");
     $("retake-form").reset();
-    $("retake-summary").textContent = "原测试：" + a.subject + " · " + a.unit + "，" + fmtWall(a.scheduledWall) + "，分数 " + a.score + " / 5";
+    $("retake-summary").textContent = "原测试：" + a.subject + " · " + a.unit + "，" + fmtWall(a.scheduledWall) + "，汇总评分 " + a.score + " / 5";
     openDialog($("retake-dialog"));
     $("r-date").focus();
   }
