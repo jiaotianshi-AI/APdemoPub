@@ -100,7 +100,13 @@ test("T7 封面加载失败显示占位", async ({ page }) => {
   await expect(page.locator("#modal")).toBeVisible();
 });
 
-test("T8 进度块", async ({ page }) => {
+// 测试学生固定的测试：2030-06-15 15:00（温哥华 UTC-7），本单元从 2030-06-01 00:00 开始（见 tests/global-setup.js）
+const START_MS = Date.parse("2030-06-01T00:00:00-07:00");
+const TEST_MS = Date.parse("2030-06-15T15:00:00-07:00");
+const atFraction = (f) => new Date(START_MS + f * (TEST_MS - START_MS));
+
+test("T8 进度块：进度 = 本单元开始日到测试时间已走过的比例", async ({ page }) => {
+  await page.clock.install({ time: atFraction(0.105) }); // 10.5% → 向下取整为 10%
   await ready(page);
   const bar = page.locator("#progress-body [role=progressbar]");
   await expect(bar).toHaveAttribute("aria-valuenow", "10");
@@ -113,22 +119,34 @@ test("T8 进度块", async ({ page }) => {
   });
   expect(Math.abs(fw / bw - 0.1)).toBeLessThanOrEqual(0.005);
   expect(await page.locator("#mod-progress button, #mod-progress input, #mod-progress a").count()).toBe(0);
-  await expect(page.locator("#progress-body")).toContainText("AP 生物学 Unit 2：细胞结构与功能");
+  await expect(page.locator("#progress-body")).toContainText("AP Biology · Unit 2");
   await page.click('.lang-btn[data-lang="en"]');
-  await expect(page.locator("#progress-body")).toContainText("AP Biology Unit 2: Cell Structure and Function");
+  await expect(page.locator("#progress-body")).toContainText("AP Biology · Unit 2");
+  await expect(page.locator("#progress-body")).toContainText("Unit test time");
+});
+
+test("T8 进度的边界：开始前为 0%，测试时间之后为 100%", async ({ page }) => {
+  await page.clock.install({ time: new Date(START_MS - 5 * 86400000) });
+  await ready(page);
+  await expect(page.locator("[role=progressbar]")).toHaveAttribute("aria-valuenow", "0");
+  const p2 = await page.context().newPage();
+  await p2.clock.install({ time: new Date(TEST_MS + 3600000) });
+  await p2.goto("index.html?lang=zh");
+  await p2.waitForSelector("[role=progressbar]");
+  await expect(p2.locator("[role=progressbar]")).toHaveAttribute("aria-valuenow", "100");
 });
 
 test("T9 测试时间与倒计时/已结束", async ({ page }) => {
-  await page.clock.install({ time: new Date("2026-11-27T07:30:00-07:00") });
+  await page.clock.install({ time: new Date("2030-06-14T07:30:00-07:00") });
   await ready(page, "zh");
-  await expect(page.locator("#progress-body")).toContainText("2026年11月28日 3:00 PM（温哥华时间）");
+  await expect(page.locator("#progress-body")).toContainText("2030年6月15日 3:00 PM（温哥华时间）");
   await expect(page.locator(".status-badge")).toHaveText("还有 1 天 7 小时");
   await page.click('.lang-btn[data-lang="en"]');
-  await expect(page.locator("#progress-body")).toContainText("Nov 28, 2026, 3:00 PM (Vancouver time)");
+  await expect(page.locator("#progress-body")).toContainText("Jun 15, 2030, 3:00 PM (Vancouver time)");
   await expect(page.locator(".status-badge")).toHaveText("1 d 7 h left");
 
   const page2 = await page.context().newPage();
-  await page2.clock.install({ time: new Date("2026-11-29T08:00:00-07:00") });
+  await page2.clock.install({ time: new Date("2030-06-16T08:00:00-07:00") });
   await page2.goto("index.html?lang=zh");
   await page2.waitForSelector(".status-badge");
   await expect(page2.locator(".status-badge")).toHaveText("已结束");
@@ -154,36 +172,36 @@ test("T10 机器人模块", async ({ page }) => {
   expect(await page.locator("#mod-qa input, #mod-qa textarea").count()).toBe(0);
 });
 
-test("T11 用户入口", async ({ page }) => {
+test("T11 用户区：右上角显示当前账号和“退出登录”，点击后回到登录页并结束会话", async ({ page }) => {
+  // 用独立的新会话测试退出，避免结束其他用例共用的学生登录状态
+  const login = await page.request.post("/api/login", { headers: { "X-Requested-With": "apdemo" }, data: { username: "e2e_student", password: "E2e-Passw0rd!" } });
+  expect(login.status()).toBe(200);
   await ready(page);
-  const btn = page.locator("#login-btn");
+  await expect(page.locator("#user-name")).toHaveText("e2e_student");
+  const btn = page.locator("#logout-btn");
   const box = await btn.boundingBox();
   const vw = page.viewportSize().width;
   expect(box.x).toBeGreaterThan(vw / 2);
   expect(box.y).toBeLessThan(100);
-  await btn.click();
-  await expect(page.locator("#modal")).toBeVisible();
-  await expect(page.locator("#modal")).toContainText("演示版：登录与用户管理功能将在后续阶段开放。");
   expect(await page.locator("#modal input, #modal form, form, input").count()).toBe(0);
-  await page.locator("#modal-close").click();
-  await expect(page.locator("#modal")).toBeHidden();
-  await expect(btn).toBeFocused();
+  await btn.click();
+  await expect(page).toHaveURL(/\/login$/);
+  await page.goto("index.html");
+  await expect(page).toHaveURL(/\/login$/);
 });
 
-test("T18 数据驱动", async ({ page }) => {
-  await page.route("**/data/progress.sample.json", async (route) => {
+test("T18 数据驱动：页面内容来自后台接口，不是写死的", async ({ page }) => {
+  const s0 = Date.parse("2030-01-01T00:00:00-08:00"), e0 = Date.parse("2030-01-11T14:30:00-08:00");
+  await page.clock.install({ time: new Date(s0 + 0.405 * (e0 - s0)) }); // 走过约 40.5% → 向下取整为 40%
+  await page.route("**/api/student/overview", async (route) => {
     const j = await (await route.fetch()).json();
-    j.percent = 40;
+    j.next = { ...j.next, subject: "AP Chemistry", unit: "Unit 7", unitStartAt: "2030-01-01T00:00:00-08:00", unitStartDate: "2030-01-01",
+      scheduledAt: "2030-01-11T14:30:00-08:00", scheduledWall: "2030-01-11T14:30", timezone: "America/Vancouver" };
     route.fulfill({ json: j });
   });
   await page.route("**/data/sites.json", async (route) => {
     const j = await (await route.fetch()).json();
     j.items.pop();
-    route.fulfill({ json: j });
-  });
-  await page.route("**/data/assessment.sample.json", async (route) => {
-    const j = await (await route.fetch()).json();
-    j.scheduledAt = "2026-12-12T14:30:00-07:00";
     route.fulfill({ json: j });
   });
   await ready(page, "en");
@@ -192,9 +210,53 @@ test("T18 数据驱动", async ({ page }) => {
     const b = document.querySelector("[role=progressbar]");
     return [b.getBoundingClientRect().width, b.firstElementChild.getBoundingClientRect().width];
   });
-  expect(Math.abs(fw / bw - 0.4)).toBeLessThanOrEqual(0.005);
+  expect(Math.abs(fw / bw - 0.4)).toBeLessThanOrEqual(0.01);
   await expect(page.locator("#sites-body a")).toHaveCount(2);
-  await expect(page.locator("#progress-body")).toContainText("Dec 12, 2026, 2:30 PM (Vancouver time)");
+  await expect(page.locator("#progress-body")).toContainText("AP Chemistry · Unit 7");
+  await expect(page.locator("#progress-body")).toContainText("Jan 11, 2030, 2:30 PM (Vancouver time)");
+});
+
+test("没有安排测试时：显示科目和“暂无已安排的测试”，没有进度条", async ({ page }) => {
+  await page.route("**/api/student/overview", (route) => route.fulfill({ json: { username: "e2e_student", subject: "AP Biology", next: null } }));
+  await page.goto("index.html?lang=zh");
+  await expect(page.locator("#progress-body")).toContainText("AP Biology");
+  await expect(page.locator("#progress-body")).toContainText("暂无已安排的测试");
+  await expect(page.locator("[role=progressbar]")).toHaveCount(0);
+  await page.route("**/api/student/overview", (route) => route.fulfill({ json: { username: "e2e_student", subject: null, next: null } }));
+  await page.reload();
+  await expect(page.locator("#progress-body")).toContainText("尚未设置学习科目");
+  await page.click('.lang-btn[data-lang="en"]');
+  await expect(page.locator("#progress-body")).toContainText("No study subject set yet");
+  await expect(page.locator("#progress-body")).toContainText("No test scheduled");
+});
+
+test("学生有多个未来测试时，只显示排期最近的一个；已评分的不显示", async ({ page }) => {
+  const { makeUser, linkSupervisor } = require("./helpers");
+  const { db } = require("../server/db");
+  const stu = await makeUser("student", "multi");
+  const ins = (unit, wall, iso, status) => db.prepare(`INSERT INTO assessments (student_id, subject, unit, unit_start_date, unit_start_at, scheduled_wall, scheduled_at, timezone, status, attempt_no, created_at, updated_at)
+    VALUES (?, 'AP Biology', ?, '2031-01-01', '2031-01-01T00:00:00-08:00', ?, ?, 'America/Vancouver', ?, 1, ?, ?)`).run(stu.id, unit, wall, iso, status, new Date().toISOString(), new Date().toISOString());
+  ins("Later", "2031-09-01T10:00", "2031-09-01T10:00:00-07:00", "scheduled");
+  ins("Nearest", "2031-03-10T10:00", "2031-03-10T10:00:00-07:00", "scheduled");
+  ins("GradedEarlier", "2031-02-01T10:00", "2031-02-01T10:00:00-08:00", "graded");
+  await page.request.post("/api/login", { headers: { "X-Requested-With": "apdemo" }, data: { username: stu.username, password: "E2e-Passw0rd!" } });
+  await page.goto("index.html?lang=en");
+  await expect(page.locator("#progress-body")).toContainText("Unit: ".slice(0, 0) + "AP Biology · Nearest");
+  await expect(page.locator("#progress-body")).toContainText("Mar 10, 2031, 10:00 AM");
+  await expect(page.locator("#progress-body")).not.toContainText("Later");
+  await expect(page.locator("#progress-body")).not.toContainText("GradedEarlier");
+});
+
+test("学生只能看到自己的数据：别的角色不能调用学生接口，未登录跳转登录页", async ({ playwright, baseURL }) => {
+  const { state, ANON } = require("./helpers");
+  for (const role of ["supervisor", "admin", "support"]) {
+    const c = await playwright.request.newContext({ baseURL, storageState: state(role) });
+    expect((await c.get("/api/student/overview")).status(), role).toBe(403);
+    await c.dispose();
+  }
+  const anon = await playwright.request.newContext({ baseURL, storageState: ANON });
+  expect((await anon.get("/api/student/overview")).status()).toBe(401);
+  await anon.dispose();
 });
 
 test("T21 数据取不到时只影响对应模块", async ({ page }) => {

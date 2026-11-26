@@ -1,11 +1,9 @@
 /*
  * 数据访问层：页面取数的唯一入口（window.APApi）。
- * static：同源 fetch data/*.json。remote：仅预留，调用抛 NOT_IMPLEMENTED，不发任何网络请求。
+ * static：同源读取 data/*.json（站点、视频、示例问答）和后台的学生接口。remote：仅预留，调用抛 NOT_IMPLEMENTED，不发任何网络请求。
  */
 (function () {
   "use strict";
-
-  var DEMO_STUDENT = "stu_demo"; // 本阶段忽略传入的 studentId
 
   // remote 模式的接口路径常量（草案，见 docs/API.md）
   var ROUTES = {
@@ -54,16 +52,50 @@
     });
   }
 
+  // ---- 学生自己的数据（来自后台，登录后才能取）----
+  var overviewPromise = null;
+  function overview() {
+    if (isRemote()) return notImplemented("overview")();
+    if (!overviewPromise) {
+      overviewPromise = fetch(new URL("api/student/overview", document.baseURI).href, { cache: "no-store", credentials: "same-origin" })
+        .then(function (res) {
+          if (res.status === 401) { window.location.href = "/login"; return fail("UNAUTHENTICATED", "Please sign in."); }
+          if (!res.ok) return fail("HTTP_" + res.status, "Failed to load overview");
+          return res.json().catch(function () { return fail("BAD_DATA", "Invalid JSON"); });
+        }, function () { return fail("NETWORK", "Network error"); })
+        .catch(function (e) { overviewPromise = null; return Promise.reject(e); });
+    }
+    return overviewPromise;
+  }
+
+  // 学习进度 = 从“本单元开始学习”到测试时间，已经走过的比例（0–100 的整数）。在页面加载时按当前时间计算一次。
+  function percentOf(next) {
+    var start = Date.parse(next.unitStartAt), end = Date.parse(next.scheduledAt), now = Date.now();
+    if (!(end > start)) return now >= end ? 100 : 0;
+    return Math.max(0, Math.min(100, Math.floor(((now - start) / (end - start)) * 100)));
+  }
+
   window.APApi = {
     ROUTES: ROUTES,
     getSites: function () { return listItems("sites.json", "getSites"); },
     getVideos: function () { return listItems("videos.json", "getVideos", function (v) { return v.provider === "youtube"; }); },
-    getProgress: function (/* studentId */) { return load("progress.sample.json", "getProgress"); },
-    getNextAssessment: function (/* studentId */) {
-      return load("assessment.sample.json", "getNextAssessment").then(function (a) { return a || null; });
+    getProgress: function (/* studentId：学生只能看自己的 */) {
+      return overview().then(function (o) {
+        var n = o.next;
+        return { subject: n ? n.subject : (o.subject || null), unit: n ? n.unit : null, percent: n ? percentOf(n) : null, hasAssessment: !!n };
+      });
     },
+    getNextAssessment: function (/* studentId */) { return overview().then(function (o) { return o.next || null; }); },
     getQaDemo: function () { return listItems("qa.sample.json", "getQaDemo"); },
-    getCurrentUser: function () { return Promise.resolve(null); },
+    getCurrentUser: function () {
+      if (isRemote()) return Promise.resolve(null);
+      return overview().then(function (o) { return { username: o.username, type: "student" }; }, function () { return null; });
+    },
+    logout: function () {
+      if (isRemote()) return notImplemented("logout")();
+      return fetch(new URL("api/logout", document.baseURI).href, { method: "POST", credentials: "same-origin", headers: { "X-Requested-With": "apdemo" } })
+        .then(function () { return null; }, function () { return fail("NETWORK", "Network error"); });
+    },
 
     // 以下仅预留
     startAssessment: notImplemented("startAssessment"),
@@ -71,8 +103,6 @@
     getAttemptResult: notImplemented("getAttemptResult"),
     getWeeklyReport: notImplemented("getWeeklyReport"),
     askQuestion: notImplemented("askQuestion"),
-    login: notImplemented("login"),
-    logout: notImplemented("logout"),
-    _demoStudentId: DEMO_STUDENT
+    login: notImplemented("login")
   };
 })();

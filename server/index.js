@@ -6,6 +6,7 @@ const auth = require('./auth');
 const authRoutes = require('./routes-auth');
 const adminApi = require('./routes-admin');
 const supervisorApi = require('./routes-supervisor');
+const studentApi = require('./routes-student');
 const files = require('./files');
 const { httpError, sendJson, sendText, redirect, sendFile } = require('./http');
 
@@ -71,6 +72,10 @@ async function handleApi(req, res, pathname) {
   if (pathname.startsWith('/api/admin/')) {
     if (ctx.account.type !== 'admin') throw httpError(403, 'FORBIDDEN', '没有权限。');
     return adminApi(req, res, pathname, ctx);
+  }
+  if (pathname.startsWith('/api/student/')) {
+    if (ctx.account.type !== 'student') throw httpError(403, 'FORBIDDEN', '没有权限。');
+    return studentApi(req, res, pathname, ctx);
   }
   if (pathname.startsWith('/api/supervisor/')) {
     if (ctx.account.type !== 'supervisor') throw httpError(403, 'FORBIDDEN', '没有权限。');

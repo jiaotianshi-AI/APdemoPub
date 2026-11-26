@@ -1,10 +1,11 @@
 // T20 后台预留接口
 const { test, expect } = require("@playwright/test");
 
-const RESERVED = ["startAssessment", "submitAttempt", "getAttemptResult", "getWeeklyReport", "askQuestion", "login", "logout"];
-const IMPLEMENTED = ["getSites", "getVideos", "getProgress", "getNextAssessment", "getQaDemo", "getCurrentUser"];
+const RESERVED = ["startAssessment", "submitAttempt", "getAttemptResult", "getWeeklyReport", "askQuestion", "login"];
+// logout 在后台模式下已实现（会结束当前会话），这里不调用，避免结束其他用例共用的登录状态
+const IMPLEMENTED = ["getSites", "getVideos", "getProgress", "getNextAssessment", "getQaDemo", "getCurrentUser", "logout"];
 
-test("T20 APApi 函数齐全，预留函数 reject NOT_IMPLEMENTED，getCurrentUser 为 null", async ({ page }) => {
+test("T20 APApi 函数齐全，预留函数 reject NOT_IMPLEMENTED，getCurrentUser 返回当前学生", async ({ page }) => {
   await page.goto("index.html");
   const r = await page.evaluate(async ({ RESERVED, IMPLEMENTED }) => {
     const out = { missing: [], codes: {}, user: undefined };
@@ -17,7 +18,7 @@ test("T20 APApi 函数齐全，预留函数 reject NOT_IMPLEMENTED，getCurrentU
   }, { RESERVED, IMPLEMENTED });
   expect(r.missing).toEqual([]);
   for (const n of RESERVED) expect(r.codes[n]).toBe("NOT_IMPLEMENTED");
-  expect(r.user).toBeNull();
+  expect(r.user).toEqual({ username: "e2e_student", type: "student" });
 });
 
 test("T20 remote 模式下调用不产生任何网络请求", async ({ page }) => {
@@ -36,7 +37,7 @@ test("T20 remote 模式下调用不产生任何网络请求", async ({ page }) =
     return out;
   });
   expect(requests).toEqual([]);
-  for (const n of ["getSites", "getVideos", "getProgress", "getNextAssessment", "getQaDemo", "startAssessment", "login"]) expect(codes[n]).toBe("NOT_IMPLEMENTED");
+  for (const n of ["getSites", "getVideos", "getProgress", "getNextAssessment", "getQaDemo", "startAssessment", "login", "logout"]) expect(codes[n]).toBe("NOT_IMPLEMENTED");
   expect(codes.getCurrentUser).toBe("resolved");
 });
 
@@ -45,11 +46,13 @@ test("static 模式取数返回预期结构", async ({ page }) => {
   const r = await page.evaluate(async () => ({
     sites: (await window.APApi.getSites()).map((s) => s.url),
     videos: (await window.APApi.getVideos()).map((v) => v.videoId),
-    progress: (await window.APApi.getProgress()).percent,
-    asm: (await window.APApi.getNextAssessment()).scheduledAt
+    progress: await window.APApi.getProgress(),
+    asm: await window.APApi.getNextAssessment()
   }));
   expect(r.sites).toEqual(["https://myap.collegeboard.org/", "https://www.khanacademy.org/", "https://classroom.google.com/"]);
   expect(r.videos).toEqual(["gjswMPTXYk4", "t21f03JfGPk", "KSAPc5NwLYU"]);
-  expect(r.progress).toBe(10);
-  expect(r.asm).toBe("2026-11-28T15:00:00-07:00");
+  expect([r.progress.subject, r.progress.unit, r.progress.hasAssessment]).toEqual(["AP Biology", "Unit 2", true]);
+  expect(Number.isInteger(r.progress.percent) && r.progress.percent >= 0 && r.progress.percent <= 100).toBe(true);
+  expect(r.asm.scheduledAt).toMatch(/^2030-06-15T15:00:00[+-]\d\d:\d\d$/);
+  expect(r.asm.timezone).toBe("America/Vancouver");
 });

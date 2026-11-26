@@ -13,6 +13,7 @@
     videos: { status: "loading" },
     qa: { status: "loading" }
   };
+  state.user = null;
 
   /* ---------- 小工具 ---------- */
   function el(tag, cls, text) {
@@ -91,33 +92,37 @@
     safeRender("progress-body", function (host, d) {
       var prog = d.progress;
       var asm = d.assessment;
-      var pct = Math.max(0, Math.min(100, Math.round(Number(prog.percent) || 0)));
       var wrap = el("div", "progress-layout");
 
       var left = el("div", "progress-main");
       var cur = el("div", "kv");
       cur.appendChild(el("div", "kv-label", t("progress.current")));
-      cur.appendChild(el("div", "kv-value current-text", t("progress.courseUnit", {
-        course: pick(prog.course.name), number: prog.currentUnit.number, unit: pick(prog.currentUnit.name)
-      })));
+      var curText;
+      if (prog.subject && prog.unit) curText = t("progress.subjectUnit", { subject: prog.subject, unit: prog.unit });
+      else if (prog.subject) curText = prog.subject;
+      else curText = t("progress.noSubject");
+      cur.appendChild(el("div", "kv-value current-text", curText));
       left.appendChild(cur);
 
-      var pw = el("div", "percent-wrap");
-      var head = el("div", "percent-head");
-      head.appendChild(el("span", "kv-label", t("progress.percent")));
-      head.appendChild(el("span", "percent-num", pct + "%"));
-      pw.appendChild(head);
-      var bar = el("div", "bar");
-      bar.setAttribute("role", "progressbar");
-      bar.setAttribute("aria-valuemin", "0");
-      bar.setAttribute("aria-valuemax", "100");
-      bar.setAttribute("aria-valuenow", String(pct));
-      bar.setAttribute("aria-label", t("progress.percent"));
-      var fill = el("div", "bar-fill");
-      fill.style.width = pct + "%"; // CSSOM 赋值，不违反 style-src 'self'
-      bar.appendChild(fill);
-      pw.appendChild(bar);
-      left.appendChild(pw);
+      if (prog.hasAssessment && prog.percent !== null) {
+        var pct = Math.max(0, Math.min(100, Math.round(Number(prog.percent) || 0)));
+        var pw = el("div", "percent-wrap");
+        var head = el("div", "percent-head");
+        head.appendChild(el("span", "kv-label", t("progress.percent")));
+        head.appendChild(el("span", "percent-num", pct + "%"));
+        pw.appendChild(head);
+        var bar = el("div", "bar");
+        bar.setAttribute("role", "progressbar");
+        bar.setAttribute("aria-valuemin", "0");
+        bar.setAttribute("aria-valuemax", "100");
+        bar.setAttribute("aria-valuenow", String(pct));
+        bar.setAttribute("aria-label", t("progress.percent"));
+        var fill = el("div", "bar-fill");
+        fill.style.width = pct + "%"; // CSSOM 赋值，不违反 style-src 'self'
+        bar.appendChild(fill);
+        pw.appendChild(bar);
+        left.appendChild(pw);
+      }
       wrap.appendChild(left);
 
       var right = el("div", "assessment");
@@ -369,21 +374,19 @@
     renderSites();
     renderVideos();
     renderQa();
+    renderUser();
   }
 
-  function openLogin() {
-    var p = el("p", "login-message", t("login.message"));
-    openModal({
-      kind: "login",
-      title: t("login.title"),
-      content: p,
-      restore: "#login-btn",
-      rebuild: function () {
-        modalEls().title.textContent = t("login.title");
-        var msg = modalEls().content.querySelector(".login-message");
-        if (msg) msg.textContent = t("login.message");
-      }
-    });
+  function renderUser() {
+    var u = state.user;
+    var n = body("user-name");
+    if (n) n.textContent = u ? u.username : "";
+  }
+
+  function logout() {
+    var b = body("logout-btn");
+    b.disabled = true;
+    api.logout().then(null, function () { /* 网络错误时仍回到登录页 */ }).then(function () { window.location.href = "/login"; });
   }
 
   function load(key, promise, map) {
@@ -399,7 +402,7 @@
     document.querySelectorAll(".lang-btn").forEach(function (b) {
       b.addEventListener("click", function () { i18n.setLang(b.getAttribute("data-lang"), true); });
     });
-    body("login-btn").addEventListener("click", openLogin);
+    body("logout-btn").addEventListener("click", logout);
     body("modal-close").addEventListener("click", closeModal);
     body("modal-backdrop").addEventListener("click", closeModal);
     document.addEventListener("ap:langchange", function () {
@@ -411,6 +414,7 @@
     load("progress", Promise.all([api.getProgress(), api.getNextAssessment()]), function (r) {
       return { progress: r[0], assessment: r[1] };
     });
+    api.getCurrentUser().then(function (u) { state.user = u; renderUser(); });
     load("sites", api.getSites());
     load("videos", api.getVideos());
     load("qa", api.getQaDemo());

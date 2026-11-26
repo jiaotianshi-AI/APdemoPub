@@ -111,7 +111,7 @@ test("T14 1180x820 下所有可交互元素 ≥ 44px", async ({ page }) => {
 
 test("T13 仅键盘可到达并操作所有交互元素，焦点可见", async ({ page }) => {
   await open(page, "zh");
-  const expected = 2 + 1 + 3 + 3; // 语言×2、登录、视频×3、关联网站×3
+  const expected = 2 + 1 + 3 + 3; // 语言×2、退出登录、视频×3、关联网站×3
   const seen = [];
   for (let i = 0; i < expected; i++) {
     await page.keyboard.press("Tab");
@@ -123,13 +123,6 @@ test("T13 仅键盘可到达并操作所有交互元素，焦点可见", async (
     seen.push(info.id);
   }
   expect(new Set(seen).size).toBe(expected);
-  // 键盘操作：Enter 打开登录，ESC 关闭，焦点回到按钮
-  await page.focus("#login-btn");
-  await page.keyboard.press("Enter");
-  await expect(page.locator("#modal")).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(page.locator("#modal")).toBeHidden();
-  await expect(page.locator("#login-btn")).toBeFocused();
   // 键盘打开视频并关闭
   await page.focus("#videos-body .video-entry");
   await page.keyboard.press("Enter");
@@ -149,8 +142,8 @@ for (const lang of ["zh", "en"]) {
     const res = await new AxeBuilder({ page }).analyze();
     const bad = res.violations.filter((v) => ["serious", "critical"].includes(v.impact));
     expect(bad.map((v) => v.id + ": " + v.nodes.map((n) => n.target.join(" ")).join(" | "))).toEqual([]);
-    // 打开弹窗后再测一次
-    await page.click("#login-btn");
+    // 打开视频弹窗后再测一次
+    await page.click("#videos-body .video-entry");
     const res2 = await new AxeBuilder({ page }).analyze();
     const bad2 = res2.violations.filter((v) => ["serious", "critical"].includes(v.impact));
     expect(bad2.map((v) => v.id)).toEqual([]);

@@ -4,6 +4,8 @@ const path = require("path");
 
 const PASSWORD = "E2e-Passw0rd!";
 const authDir = path.join(__dirname, ".auth");
+// 测试学生固定的测试：2030-06-15 15:00（温哥华），本单元从 2030-06-01 开始
+const SEED = { wall: "2030-06-15T15:00", startDate: "2030-06-01" };
 
 module.exports = async () => {
   process.env.APDEMO_DB = process.env.APDEMO_DB; // 与服务器使用同一个库文件
@@ -23,6 +25,16 @@ module.exports = async () => {
     db.prepare("INSERT OR IGNORE INTO accounts (username, username_key, type, password_hash, must_change_password, created_at) VALUES (?, ?, ?, ?, 0, ?)")
       .run(name, name.toLowerCase(), type, hash, now);
   }
+
+  // 给测试学生：学习科目、一个关联的督导者、一条固定的未来测试（学生页的测试读取它）
+  const { wallToIso, dateToIso } = require("../server/timeutil");
+  const id = (name) => db.prepare("SELECT id FROM accounts WHERE username_key = ?").get(name).id;
+  db.prepare("UPDATE accounts SET subject = 'AP Biology' WHERE id = ?").run(id("e2e_student"));
+  db.prepare("INSERT OR IGNORE INTO supervisor_students (supervisor_id, student_id) VALUES (?, ?)").run(id("e2e_supervisor"), id("e2e_student"));
+  const wall = SEED.wall, when = wallToIso(wall, "America/Vancouver"), start = dateToIso(SEED.startDate, "America/Vancouver");
+  db.prepare(`INSERT INTO assessments (student_id, created_by, subject, unit, unit_start_date, unit_start_at, scheduled_wall, scheduled_at, timezone, status, attempt_no, created_at, updated_at)
+    VALUES (?, ?, 'AP Biology', 'Unit 2', ?, ?, ?, ?, 'America/Vancouver', 'scheduled', 1, ?, ?)`)
+    .run(id("e2e_student"), id("e2e_supervisor"), SEED.startDate, start.iso, wall, when.iso, now, now);
 
   fs.mkdirSync(authDir, { recursive: true });
   for (const [name] of seed) {
@@ -44,3 +56,4 @@ module.exports = async () => {
 };
 
 module.exports.PASSWORD = PASSWORD;
+module.exports.SEED = SEED;

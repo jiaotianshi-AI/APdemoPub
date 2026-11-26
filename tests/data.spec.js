@@ -12,8 +12,6 @@ const read = (p) => JSON.parse(fs.readFileSync(path.join(root, p), "utf8"));
 const pairs = [
   ["data/sites.json", "data/schema/site.schema.json"],
   ["data/videos.json", "data/schema/video.schema.json"],
-  ["data/progress.sample.json", "data/schema/progress.schema.json"],
-  ["data/assessment.sample.json", "data/schema/assessment.schema.json"],
   ["data/qa.sample.json", "data/schema/qa.schema.json"]
 ];
 
@@ -35,8 +33,7 @@ for (const [dataFile, schemaFile] of pairs) {
 
   test(`T19 ${dataFile} 内容约定（双语非空、无邮箱、ID 前缀、时间带时区）`, () => {
     const data = read(dataFile);
-    const prefixes = { id: null };
-    const idPrefix = { studentId: "stu_", unitId: "unit_" };
+    const idPrefix = {};
     walk(data, (node, key) => {
       if (node && typeof node === "object" && !Array.isArray(node) && ("zh" in node || "en" in node)) {
         expect(typeof node.zh === "string" && node.zh.trim().length > 0, `${dataFile} zh 为空`).toBe(true);
@@ -51,11 +48,6 @@ for (const [dataFile, schemaFile] of pairs) {
     // 条目 id 前缀
     const want = { "data/sites.json": "site_", "data/videos.json": "vid_", "data/qa.sample.json": "qa_" }[dataFile];
     if (want) for (const it of data.items) expect(it.id.startsWith(want)).toBe(true);
-    if (dataFile.includes("assessment")) expect(data.id.startsWith("asm_")).toBe(true);
-    if (dataFile.includes("progress")) {
-      expect(data.course.id.startsWith("crs_")).toBe(true);
-      expect(data.currentUnit.id.startsWith("unit_")).toBe(true);
-    }
   });
 }
 
