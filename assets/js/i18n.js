@@ -9,8 +9,6 @@
       "a11y.langGroup": "语言切换",
       "account.logout": "退出登录",
       "modal.close": "关闭",
-      "hero.title": "AP 自学演示首页",
-      "hero.subtitle": "跟踪学习进度、参加定时测试，并快速找到学习视频、问答入口和关联网站。",
       "common.loading": "加载中…",
       "error.module": "该模块暂时无法加载，请稍后刷新页面重试。",
 
@@ -145,8 +143,6 @@
       "a11y.langGroup": "Language",
       "account.logout": "Log out",
       "modal.close": "Close",
-      "hero.title": "AP Self-Study Demo",
-      "hero.subtitle": "Track your progress, take scheduled tests, and quickly find study videos, Q&A and related sites.",
       "common.loading": "Loading…",
       "error.module": "This section could not be loaded right now. Please refresh the page and try again.",
 

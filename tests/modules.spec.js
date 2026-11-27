@@ -321,3 +321,18 @@ test("关联网站：位于页面底部，只有网站名，没有图标、网�
   await expect(page.locator("#h-sites")).toHaveText("References");
   await expect(page.locator(".disclaimer")).toContainText("unofficial demo");
 });
+
+test("学生页不再显示“AP 自学演示首页”标题和说明文字（只保留给读屏软件的隐藏标题）", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator("#progress-body")).toBeVisible();
+  const visibleText = () => page.locator("main").evaluate((m) => { const c = m.cloneNode(true); c.querySelectorAll(".sr-only").forEach((e) => e.remove()); return c.innerText || c.textContent; });
+  const body = await visibleText();
+  expect(body).not.toContain("AP 自学演示首页");
+  expect(body).not.toContain("跟踪学习进度");
+  await page.goto("/?lang=en");
+  await expect(page.locator("#progress-body")).toBeVisible();
+  const en = await visibleText();
+  expect(en).not.toContain("AP Self-Study Demo");
+  expect(en).not.toContain("Track your progress");
+  await expect(page.locator("h1")).toHaveCount(1);
+});
