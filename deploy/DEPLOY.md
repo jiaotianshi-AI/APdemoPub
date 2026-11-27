@@ -1,6 +1,6 @@
 # 部署到腾讯云轻量服务器（东京）
 
-网址：**https://apdemo.locprof.com/**
+网址：**https://focus.locprof.com/**（AP 自学板块 `/apdemo`，写作板块 `/writing`）；旧域名 `apdemo.locprof.com` 保留并自动跳转到新域名。
 
 结构：Caddy（对外，自动 HTTPS）→ Node.js 应用（只监听本机 127.0.0.1:3000）→ SQLite 数据库文件。
 - 应用文件：`/opt/apdemo`（只读，由 `update.sh` 从仓库同步）
@@ -11,7 +11,7 @@
 ## 第一次安装
 1. 购买服务器：东京，2 核 2GB 起，Ubuntu 22.04 或 24.04。
 2. 腾讯云控制台 → 防火墙：放行 TCP 80、TCP 443、UDP 443；SSH(22) 建议只允许你自己的 IP。
-3. DNS：`apdemo.locprof.com` 的 A 记录指向服务器 IP。
+3. DNS：`focus.locprof.com` 和 `apdemo.locprof.com`（旧域名，用于跳转）的 A 记录都指向服务器 IP。
 4. 登录服务器，拉取代码并安装：
    ```bash
    git clone https://github.com/jiaotianshi-AI/APdemoPub.git
@@ -23,7 +23,7 @@
    ```bash
    sudo bash /opt/apdemo/deploy/create-admin.sh 你的管理员账号名
    ```
-6. 浏览器打开 https://apdemo.locprof.com/ ，用管理员账号登录，按提示修改初始密码，进入 `/admin`。
+6. 浏览器打开 https://focus.locprof.com/ ，用管理员账号登录，按提示修改初始密码，进入 `/admin`。
 
 ## 之后更新网站
 ```bash
@@ -46,7 +46,7 @@ cd ~/APdemoPub && git pull && sudo bash deploy/update.sh
 
 ## 启用 AI 判分（可选）
 1. 确认服务器能出站访问 `api.anthropic.com`（443）：`curl -sI https://api.anthropic.com | head -1`（出现 `HTTP/2 404` 之类也说明网络是通的）。腾讯云轻量服务器默认放行出站。
-2. 用管理员登录，打开 `https://apdemo.locprof.com/admin/ai`，填写模型和 API 密钥，点“测试连通性”，确认成功后点“保存设置”。
+2. 用管理员登录，打开 `https://focus.locprof.com/admin/ai`，填写模型和 API 密钥，点“测试连通性”，确认成功后点“保存设置”。
 3. 密钥加密保存，加密主密钥文件是 `/var/lib/apdemo/master.key`（自动生成，权限 600）。**每日备份不包含它**；如果你把数据库恢复到另一台服务器，需要在 `/admin/ai` 重新填写密钥。不要把 `master.key` 复制到公开的地方。
 4. 会产生 AI 服务商的费用（按 token 计费，PDF 也会消耗 token）。每个督导者每小时最多 60 次请求，可用环境变量 `AI_MAX_PER_HOUR` 调整（写在 `deploy/apdemo.service` 的 `Environment=` 里，然后 `sudo systemctl daemon-reload && sudo systemctl restart apdemo`）。
 
@@ -76,3 +76,17 @@ cd ~/APdemoPub && git pull && sudo bash deploy/update.sh
 ```
 
 服务器需要能访问 npm 仓库（registry.npmjs.org）；如果装不上，只有“文字模式”的模型会提示缺少组件，Claude / GPT 直接读 PDF 不受影响。
+
+
+## 从旧域名迁移到 focus.locprof.com（已经在运行的服务器）
+
+1. **先**在腾讯云 DNS 里给 `focus.locprof.com` 加 A 记录，指向服务器 IP，等解析生效。（没生效就切换 Caddy 的话，新域名拿不到证书，而旧域名又会被跳转到新域名，导致打不开。）
+2. 更新程序：`cd ~/APdemoPub && git pull && sudo bash deploy/update.sh`。
+3. 更新 Caddy 配置并重载：
+   ```bash
+   sudo install -m 644 ~/APdemoPub/deploy/Caddyfile /etc/caddy/Caddyfile
+   sudo caddy validate --config /etc/caddy/Caddyfile
+   sudo systemctl reload caddy
+   ```
+4. 用 `https://focus.locprof.com/` 登录；用旧域名访问会自动跳转（旧域名下的登录状态不会带过去，需要重新登录一次）。
+5. 数据库会自动升级（版本 7）：新增“科目列表”，现有学生账号里已有的科目会自动登记并归入 AP 自学板块。

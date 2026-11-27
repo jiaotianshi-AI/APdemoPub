@@ -205,7 +205,7 @@
       b.type = "button";
       b.setAttribute("aria-current", s.id === state.currentId ? "true" : "false");
       b.appendChild(el("span", "name", s.username));
-      b.appendChild(el("span", "sub", s.subject ? s.subject : "未设置学习科目"));
+      b.appendChild(el("span", "sub", (s.subject ? s.subject : "未设置学习科目") + "　·　" + (s.direction === "writing" ? "写作" : "AP 自学")));
       b.appendChild(el("span", "sub", "时区：" + s.tzLabel.zh));
       b.addEventListener("click", function () { selectStudent(s.id); });
       li.appendChild(b);
@@ -224,6 +224,17 @@
     var s = currentStudent();
     $("student-title").textContent = s ? s.username : "测试管理";
     $("student-sub").textContent = s ? (s.subject ? "学习科目：" + s.subject : "管理员还没有为这位学生设置学习科目") + "　·　学生所在时区：" + s.tzLabel.zh : "";
+    // 写作板块的学生：这里还没有对应的内容（Writing 板块开发中），不显示 AP 测试管理
+    var isWriting = !!s && s.direction === "writing";
+    $("new-btn").hidden = isWriting;
+    if (isWriting) {
+      var host = $("lists");
+      clear(host);
+      state.assessments = [];
+      setStatus("");
+      host.appendChild(el("p", "muted writing-note", "这位学生属于写作板块（Writing），写作的日程和题目库功能即将开放。"));
+      return Promise.resolve();
+    }
     return loadAssessments();
   }
 
@@ -495,7 +506,7 @@
     allLabel.appendChild(all);
     allLabel.appendChild(el("span", "", "所有学生"));
     list.appendChild(allLabel);
-    testForm.checks = state.students.map(function (s) {
+    testForm.checks = state.students.filter(function (s) { return s.direction !== "writing"; }).map(function (s) {
       var l = el("label", "check");
       var c = el("input");
       c.type = "checkbox";

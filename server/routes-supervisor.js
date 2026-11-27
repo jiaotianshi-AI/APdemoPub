@@ -10,6 +10,7 @@ const tzs = require('./timezones');
 const scoring = require('./scoring');
 const settings = require('./settings');
 const ai = require('./ai');
+const subjects = require('./subjects');
 
 const TEXT_MAX = 64;
 const DURATION_MIN = 5;
@@ -135,7 +136,7 @@ function setFiles(assessmentId, role, ids) {
 function listStudents(res, ctx) {
   const rows = db.prepare(`SELECT a.id, a.username, a.subject, a.disabled, a.timezone FROM supervisor_students s
     JOIN accounts a ON a.id = s.student_id WHERE s.supervisor_id = ? ORDER BY a.username`).all(ctx.account.id);
-  sendJson(res, 200, { students: rows.map((r) => ({ id: r.id, username: r.username, subject: r.subject || '', disabled: !!r.disabled, timezone: r.timezone, tzLabel: tzs.label(r.timezone) })) });
+  sendJson(res, 200, { students: rows.map((r) => ({ id: r.id, username: r.username, subject: r.subject || '', direction: subjects.directionOf({ type: 'student', subject: r.subject }), disabled: !!r.disabled, timezone: r.timezone, tzLabel: tzs.label(r.timezone) })) });
 }
 
 function listAssessments(res, ctx, studentId) {
@@ -154,6 +155,10 @@ async function createAssessments(req, res, ctx) {
     if (!studentIds.includes(v)) studentIds.push(v);
   }
   const studs = studentIds.map((id) => requireLinkedStudent(ctx, id));
+  for (const st of studs) {
+    const full = db.prepare('SELECT username, subject FROM accounts WHERE id = ?').get(st.id);
+    if (subjects.directionOf({ type: 'student', subject: full.subject }) !== 'apdemo') throw httpError(422, 'WRONG_DIRECTION', `学生 ${full.username} 不属于 AP 自学板块，不能安排 AP 测试。`);
+  }
   const subject = cleanText(body.subject, '测试科目');
   const unit = cleanText(body.unit, '测试单元');
   // 测试日期和时间按“每个学生自己所在的时区”解释（所选学生时区不同时，同一个当地时间会分别按各自时区生效）

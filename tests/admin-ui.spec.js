@@ -7,10 +7,11 @@ test.use({ storageState: state("admin"), viewport: { width: 1180, height: 820 } 
 
 const LABEL = { student: "学生", supervisor: "督导者", support: "客服" };
 
-async function createViaUi(page, name, type) {
+async function createViaUi(page, name, type, subject = "AP Biology") {
   await page.click("#new-btn");
   await page.fill("#new-username", name);
   await page.selectOption("#new-type", type);
+  if (type === "student") await page.selectOption("#new-subject", subject);
   await page.click("#create-submit");
   await expect(page.locator("#secret-dialog")).toBeVisible();
   const password = await page.locator("#secret-password").textContent();
@@ -41,7 +42,7 @@ test("新建账号：只需账号名和类型；初始密码只显示一次；�
   await expect(r).toContainText("学生");
   await expect(r).toContainText("正常");
   await expect(r).toContainText("未改初始密码");
-  await expect(r).toContainText("学习科目：未设置");
+  await expect(r).toContainText("学习科目：AP Biology（AP 自学）");
 
   const anon = await playwright.request.newContext({ baseURL, storageState: ANON });
   const login = await anon.post("/api/login", { headers: H, data: { username: name, password } });
@@ -63,6 +64,7 @@ test("新建账号的校验提示：缺账号名、缺类型、重复账号名�
   await expect(page.locator("#create-error")).toContainText("请选择账号类型");
   await page.fill("#new-username", name.toUpperCase());
   await page.selectOption("#new-type", "student");
+  await page.selectOption("#new-subject", "AP Biology");
   await page.click("#create-submit");
   await expect(page.locator("#create-error")).toContainText("已经被使用");
   await page.fill("#new-username", "bad name!");
@@ -73,7 +75,7 @@ test("新建账号的校验提示：缺账号名、缺类型、重复账号名�
   await expect(page.locator("#new-btn")).toBeFocused(); // 关闭后焦点回到按钮
 });
 
-test("编辑：账号名和类型是只读的；学生可设置/清空学习科目", async ({ page }) => {
+test("编辑：账号名、类型、学习科目都是只读的（科目建立后不能修改）；只能改时区", async ({ page }) => {
   await open(page);
   const name = uid("stu");
   await createViaUi(page, name, "student");
@@ -82,18 +84,56 @@ test("编辑：账号名和类型是只读的；学生可设置/清空学习科�
   await expect(page.locator("#edit-dialog")).toBeVisible();
   await expect(page.locator("#edit-username")).toHaveText(name);
   await expect(page.locator("#edit-type")).toHaveText("学生");
-  // 对话框里除“学习科目”外没有任何可编辑的账号名/类型输入框
-  expect(await page.locator("#edit-dialog input, #edit-dialog select, #edit-dialog textarea").count()).toBe(2); // 学习科目 + 时区（账号名和类型没有输入框）
-  await page.fill("#edit-subject", "AP Biology");
+  await expect(page.locator("#edit-dialog")).toContainText("AP Biology（AP 自学）");
+  await expect(page.locator("#edit-dialog")).toContainText("学习科目建立后不能修改");
+  expect(await page.locator("#edit-dialog input, #edit-dialog select, #edit-dialog textarea").count()).toBe(1); // 只有时区
+  await expect(page.locator("#edit-subject")).toHaveCount(0);
   await page.click("#edit-submit");
   await expect(page.locator("#edit-dialog")).toBeHidden();
-  await expect(row(page, name)).toContainText("学习科目：AP Biology");
+  await expect(row(page, name)).toContainText("学习科目：AP Biology（AP 自学）");
+});
 
-  await row(page, name).getByRole("button", { name: "编辑 " + name }).click();
-  await expect(page.locator("#edit-subject")).toHaveValue("AP Biology");
-  await page.fill("#edit-subject", "");
-  await page.click("#edit-submit");
-  await expect(row(page, name)).toContainText("学习科目：未设置");
+test("新建学生必须选学习科目；选写作科目的学生归入写作板块；科目管理可添加和停用", async ({ page }) => {
+  await open(page);
+  // 科目只在选择“学生”时出现；不选科目不能创建
+  await page.click("#new-btn");
+  await expect(page.locator("#new-subject-field")).toBeHidden();
+  await page.selectOption("#new-type", "student");
+  await expect(page.locator("#new-subject-field")).toBeVisible();
+  await page.fill("#new-username", uid("nosub"));
+  await page.click("#create-submit");
+  await expect(page.locator("#create-error")).toContainText("请为学生选择学习科目");
+  await page.selectOption("#new-type", "supervisor");
+  await expect(page.locator("#new-subject-field")).toBeHidden();
+  await page.click("#create-dialog [data-close]");
+
+  // 写作科目
+  const wname = uid("wri");
+  await createViaUi(page, wname, "student", "Writing");
+  await page.fill("#search", wname);
+  await expect(row(page, wname)).toContainText("学习科目：Writing（写作）");
+
+  // 科目管理：添加一个 AP 科目，随后能在新建账号里选到；停用后选不到
+  const sname = "AP Test " + uid("m");
+  await page.fill("#subject-name", sname);
+  await page.selectOption("#subject-direction", "apdemo");
+  await page.click("#subject-add");
+  await expect(page.locator("#subject-msg")).toContainText("已添加科目");
+  await expect(page.locator("#subject-rows tr", { hasText: sname })).toContainText("AP 自学");
+  await page.click("#new-btn");
+  await page.selectOption("#new-type", "student");
+  await expect(page.locator("#new-subject option", { hasText: sname })).toHaveCount(1);
+  await page.click("#create-dialog [data-close]");
+  await page.getByRole("button", { name: "停用科目 " + sname }).click();
+  await expect(page.locator("#subject-rows tr", { hasText: sname })).toContainText("已停用");
+  await page.click("#new-btn");
+  await page.selectOption("#new-type", "student");
+  await expect(page.locator("#new-subject option", { hasText: sname })).toHaveCount(0);
+  await page.click("#create-dialog [data-close]");
+  // 重复添加
+  await page.fill("#subject-name", sname.toUpperCase());
+  await page.click("#subject-add");
+  await expect(page.locator("#subject-msg")).toContainText("已经有这个科目");
 });
 
 test("督导者可多选关联学生；客服可多选关联督导者", async ({ page }) => {
@@ -240,12 +280,11 @@ test("截图归档：后台列表、新建、编辑对话框（供人工审阅�
   const path = require("path");
   const dir = path.join(__dirname, "screenshots", "admin" + (testInfo.project.name === "chromium" ? "" : "-" + testInfo.project.name));
   fs.mkdirSync(dir, { recursive: true });
-  const mk = async (type, name) => (await (await request.post("/api/admin/accounts", { headers: H, data: { username: name, type } })).json()).account;
+  const mk = async (type, name) => (await (await request.post("/api/admin/accounts", { headers: H, data: { username: name, type, ...(type === "student" ? { subject: "AP Biology" } : {}) } })).json()).account;
   const s1 = await mk("student", uid("demo_student"));
   const s2 = await mk("student", uid("demo_student"));
   const sup = await mk("supervisor", uid("demo_supervisor"));
   await mk("support", uid("demo_support"));
-  await request.patch(`/api/admin/accounts/${s1.id}`, { headers: H, data: { subject: "AP Biology" } });
   await request.patch(`/api/admin/accounts/${sup.id}`, { headers: H, data: { studentIds: [s1.id, s2.id] } });
   await page.goto("/admin");
   await expect(page.locator("#rows tr").first()).toBeVisible();

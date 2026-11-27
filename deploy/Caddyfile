@@ -1,11 +1,17 @@
-# APdemo 站点配置（Caddy 2）。安装到 /etc/caddy/Caddyfile
+# Focus 站点配置（Caddy 2）。安装到 /etc/caddy/Caddyfile
 # 域名需先在 DNS 中指向本服务器 IP（A 记录），Caddy 会自动申请并续期 HTTPS 证书。
 # 所有请求都转给本机的 Node 应用（127.0.0.1:3000）；登录检查、页面权限由应用负责。
-apdemo.locprof.com {
+# 站内分成两个板块：/apdemo（AP 自学）和 /writing（写作），由应用按学生账号的学习科目分流。
+focus.locprof.com {
 	encode zstd gzip
 	reverse_proxy 127.0.0.1:3000
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		-Server
 	}
+}
+
+# 旧域名：保留，自动跳转到新域名（路径和参数原样带过去；旧域名下的登录状态不会带过去，需要重新登录一次）
+apdemo.locprof.com {
+	redir https://focus.locprof.com{uri} permanent
 }

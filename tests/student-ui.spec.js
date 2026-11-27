@@ -53,7 +53,7 @@ test("所有测试：列表按状态分组；未完成的看不到题目；学�
   const graded = page.locator(".t-card", { hasText: "GradedUnit" });
   await expect(graded).toContainText("4 / 5");
   await page.locator(".past-item", { hasText: "GradedUnit" }).locator(".past-toggle").click(); // 过往的测试默认折叠，展开后才有完整信息和链接
-  await expect(graded.getByRole("link", { name: /^查看题目和我的答案/ })).toHaveAttribute("href", /^\/exam\?id=\d+$/);
+  await expect(graded.getByRole("link", { name: /^查看题目和我的答案/ })).toHaveAttribute("href", /^\/apdemo\/exam\?id=\d+$/);
   // 没有任何修改/删除/输入控件
   expect(await page.locator("#modal input, #modal textarea, #modal select").count()).toBe(0);
   for (const w of ["修改", "删除", "编辑"]) await expect(page.locator("#modal")).not.toContainText(w);
@@ -151,7 +151,7 @@ test("测试页完整流程（屏幕输入）：选方式 → 计时 → 看题 
   await page.reload();
   await expect(page.locator("h1")).toHaveText("已提交");
   await page.getByRole("link", { name: "返回首页" }).click();
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).toHaveURL(/\/apdemo$/);
   expect(errors).toEqual([]);
 });
 

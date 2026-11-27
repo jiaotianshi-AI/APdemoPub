@@ -44,7 +44,7 @@
   }
 
   function linkText(a) {
-    if (a.type === "student") return a.subject ? "学习科目：" + a.subject : "学习科目：未设置";
+    if (a.type === "student") return a.subject ? "学习科目：" + a.subject + "（" + DIRECTION_LABEL[a.direction] + "）" : "学习科目：未设置";
     if (a.type === "supervisor") return a.studentIds.length ? "关联学生：" + a.studentIds.map(nameOf).join("、") : "未关联学生";
     return a.supervisorIds.length ? "服务督导者：" + a.supervisorIds.map(nameOf).join("、") : "未关联督导者";
   }
@@ -54,6 +54,57 @@
     return state.accounts.filter(function (a) {
       return (!state.filter || a.type === state.filter) && (!q || a.username.toLowerCase().indexOf(q) >= 0);
     });
+  }
+
+  var DIRECTION_LABEL = { apdemo: "AP 自学", writing: "写作" };
+
+  /* ---------- 科目管理 ---------- */
+  function renderSubjects() {
+    var body = $("subject-rows");
+    clear(body);
+    (state.subjects || []).forEach(function (s) {
+      var tr = el("tr", s.disabled ? "is-disabled" : "");
+      tr.appendChild(el("td", "name", s.name));
+      tr.appendChild(el("td", "", DIRECTION_LABEL[s.direction]));
+      var st = el("td");
+      st.appendChild(el("span", "badge" + (s.disabled ? " off" : ""), s.disabled ? "已停用" : "使用中"));
+      tr.appendChild(st);
+      var act = el("td", "actions");
+      var b = el("button", "btn", s.disabled ? "启用" : "停用");
+      b.type = "button";
+      b.setAttribute("aria-label", (s.disabled ? "启用科目 " : "停用科目 ") + s.name);
+      b.addEventListener("click", function () {
+        api("POST", "/api/admin/subjects/" + s.id + "/" + (s.disabled ? "enable" : "disable")).then(function (d) { state.subjects = d.subjects; renderSubjects(); })
+          .catch(function (err) { showMsg("subject-msg", err.message); });
+      });
+      act.appendChild(b);
+      tr.appendChild(act);
+      body.appendChild(tr);
+    });
+  }
+  $("subject-form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    showMsg("subject-msg", "");
+    var name = $("subject-name").value.trim();
+    if (!name) return showMsg("subject-msg", "请输入科目名称。");
+    api("POST", "/api/admin/subjects", { name: name, direction: $("subject-direction").value }).then(function (d) {
+      state.subjects = d.subjects;
+      $("subject-name").value = "";
+      renderSubjects();
+      showMsg("subject-msg", "已添加科目：" + name + "。", "ok");
+    }).catch(function (err) { showMsg("subject-msg", err.message); });
+  });
+  function fillSubjectSelect(sel, current) {
+    clear(sel);
+    var blank = el("option", "", "请选择…");
+    blank.value = "";
+    sel.appendChild(blank);
+    (state.subjects || []).filter(function (s) { return !s.disabled || s.name === current; }).forEach(function (s) {
+      var o = el("option", "", s.name + "（" + DIRECTION_LABEL[s.direction] + "）");
+      o.value = s.name;
+      sel.appendChild(o);
+    });
+    sel.value = current || "";
   }
 
   function actionBtn(label, a, handler, cls) {
@@ -101,6 +152,8 @@
       state.accounts = data.accounts;
       state.timezones = data.timezones || [];
       state.defaultTz = data.defaultTimezone || state.defaultTz;
+      state.subjects = data.subjects || [];
+      renderSubjects();
       setStatus("共 " + data.accounts.length + " 个账号。");
       render();
     }).catch(function (e) { setStatus(e.message, true); });
@@ -164,10 +217,13 @@
     remember();
     $("create-form").reset();
     fillTzSelect($("new-tz"), state.defaultTz);
+    fillSubjectSelect($("new-subject"), "");
+    $("new-subject-field").hidden = true;
     showMsg("create-error", "");
     openDialog($("create-dialog"));
     $("new-username").focus();
   });
+  $("new-type").addEventListener("change", function () { $("new-subject-field").hidden = $("new-type").value !== "student"; });
   $("create-form").addEventListener("submit", function (e) {
     e.preventDefault();
     showMsg("create-error", "");
@@ -175,8 +231,13 @@
     var type = $("new-type").value;
     if (!username) return showMsg("create-error", "请输入账号名。");
     if (!type) return showMsg("create-error", "请选择账号类型。");
+    var payload = { username: username, type: type, timezone: $("new-tz").value };
+    if (type === "student") {
+      if (!$("new-subject").value) return showMsg("create-error", "请为学生选择学习科目。");
+      payload.subject = $("new-subject").value;
+    }
     $("create-submit").disabled = true;
-    api("POST", "/api/admin/accounts", { username: username, type: type, timezone: $("new-tz").value }).then(function (data) {
+    api("POST", "/api/admin/accounts", payload).then(function (data) {
       closeDialog($("create-dialog"));
       lastTrigger = $("new-btn");
       showSecret(data.account.username, data.initialPassword);
@@ -230,17 +291,20 @@
     clear(host);
     if (a.type === "student") {
       var f = el("div", "field");
-      var l = el("label", "", "学习科目");
-      l.htmlFor = "edit-subject";
-      var inp = el("input");
-      inp.id = "edit-subject";
-      inp.type = "text";
-      inp.maxLength = 64;
-      inp.value = a.subject || "";
-      inp.setAttribute("autocomplete", "off");
-      f.appendChild(l);
-      f.appendChild(inp);
-      f.appendChild(el("span", "hint", "例如 AP Biology。可以为空。"));
+      if (a.subjectLocked) {
+        f.appendChild(el("p", "label", "学习科目"));
+        f.appendChild(el("p", "", a.subject + "（" + DIRECTION_LABEL[a.direction] + "）"));
+        f.appendChild(el("span", "hint", "学习科目建立后不能修改。要学习其他科目，请新建一个学生账号。"));
+      } else {
+        var l = el("label", "", "学习科目");
+        l.htmlFor = "edit-subject";
+        var inp = el("select");
+        inp.id = "edit-subject";
+        fillSubjectSelect(inp, "");
+        f.appendChild(l);
+        f.appendChild(inp);
+        f.appendChild(el("span", "hint", "这个学生还没有学习科目。设定后不能再修改。"));
+      }
       host.appendChild(f);
     } else {
       var isSup = a.type === "supervisor";
@@ -260,7 +324,7 @@
     if (!editing) return;
     showMsg("edit-error", "");
     var body;
-    if (editing.type === "student") body = { subject: $("edit-subject").value };
+    if (editing.type === "student") body = $("edit-subject") && $("edit-subject").value ? { subject: $("edit-subject").value } : {};
     else {
       var ids = Array.prototype.map.call($("edit-fields").querySelectorAll('input[type="checkbox"]:checked'), function (c) { return Number(c.value); });
       body = editing.type === "supervisor" ? { studentIds: ids } : { supervisorIds: ids };

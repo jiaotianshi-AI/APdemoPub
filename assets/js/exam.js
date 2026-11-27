@@ -82,7 +82,7 @@
   }
   function homeLink(cls) {
     var a = el("a", "btn" + (cls ? " " + cls : ""), t("exam.home"));
-    a.href = "/";
+    a.href = "/apdemo";
     return a;
   }
   function title(a) { return a.subject + " · " + a.unit; }
@@ -477,7 +477,12 @@
   /* ---------- 启动 ---------- */
   function renderBrand() {
     var b = document.getElementById("brand");
-    if (b && window.APConfig) b.textContent = i18n.pick(window.APConfig.brandName);
+    if (!b || !window.APConfig) return;
+    b.textContent = i18n.pick(window.APConfig.brandName);
+    var sl = document.createElement("span");
+    sl.className = "slogan";
+    sl.textContent = i18n.pick(window.APConfig.slogan);
+    b.appendChild(sl);
   }
   function markLang() {
     document.querySelectorAll(".lang-btn").forEach(function (b) { b.setAttribute("aria-pressed", b.getAttribute("data-lang") === i18n.getLang() ? "true" : "false"); });

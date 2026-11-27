@@ -9,13 +9,13 @@ const uid = (prefix) => `${prefix}_${Date.now().toString(36)}${(counter++).toStr
 module.exports = { PASSWORD, state, ANON, H, uid };
 
 // ---- 直接往测试数据库里建账号（只用于测试）----
-async function makeUser(type, prefix) {
+async function makeUser(type, prefix, subject) {
   const { db } = require("../server/db");
   const auth = require("../server/auth");
   const name = uid(prefix || type.slice(0, 3));
   const hash = await auth.hashPassword(PASSWORD);
-  const info = db.prepare("INSERT INTO accounts (username, username_key, type, password_hash, must_change_password, created_at) VALUES (?, ?, ?, ?, 0, ?)")
-    .run(name, name.toLowerCase(), type, hash, new Date().toISOString());
+  const info = db.prepare("INSERT INTO accounts (username, username_key, type, password_hash, must_change_password, subject, created_at) VALUES (?, ?, ?, ?, 0, ?, ?)")
+    .run(name, name.toLowerCase(), type, hash, subject || null, new Date().toISOString());
   return { id: Number(info.lastInsertRowid), username: name };
 }
 function linkSupervisor(supId, studentId) {

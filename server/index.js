@@ -9,6 +9,7 @@ const supervisorApi = require('./routes-supervisor');
 const studentApi = require('./routes-student');
 const files = require('./files');
 const attempts = require('./attempts');
+const subjects = require('./subjects');
 const { httpError, sendJson, sendText, redirect, sendFile } = require('./http');
 
 const PAGES = path.join(config.root, 'pages');
@@ -27,14 +28,18 @@ const ROLE_FILES = {
   '/assets/css/exam.css': 'student', '/assets/js/exam.js': 'student'
 };
 
+// 旧网址（改成 /apdemo 之前的学生首页和考试页）自动跳到新位置，保留查询参数
+const LEGACY = { '/': '', '/index.html': '', '/exam': '/exam' };
+
 const PAGE_ROUTES = {
-  '/': { role: 'student', file: path.join(config.root, 'index.html'), ownCsp: true }, // 学生页自带 meta CSP（需允许 YouTube）
-  '/index.html': { role: 'student', file: path.join(config.root, 'index.html'), ownCsp: true },
+  // 学习板块：AP 自学（apdemo）、写作（writing）。学生只能进入自己所属的板块
+  '/apdemo': { role: 'student', direction: 'apdemo', file: path.join(config.root, 'index.html'), ownCsp: true }, // 学生页自带 meta CSP（需允许 YouTube）
+  '/apdemo/exam': { role: 'student', direction: 'apdemo', file: path.join(PAGES, 'exam.html'), csp: EXAM_CSP },
+  '/writing': { role: 'student', direction: 'writing', file: path.join(PAGES, 'writing.html') },
   '/supervisor': { role: 'supervisor', file: path.join(PAGES, 'supervisor.html') },
   '/pending': { role: 'support', file: path.join(PAGES, 'pending.html') },
   '/admin': { role: 'admin', file: path.join(PAGES, 'admin.html') },
   '/admin/ai': { role: 'admin', file: path.join(PAGES, 'admin-ai.html') },
-  '/exam': { role: 'student', file: path.join(PAGES, 'exam.html'), csp: EXAM_CSP },
   '/change-password': { role: null, file: path.join(PAGES, 'change-password.html') }
 };
 
@@ -81,6 +86,7 @@ async function handleApi(req, res, pathname) {
   }
   if (pathname.startsWith('/api/student/')) {
     if (ctx.account.type !== 'student') throw httpError(403, 'FORBIDDEN', '没有权限。');
+    if (subjects.directionOf(ctx.account) !== 'apdemo') throw httpError(403, 'WRONG_DIRECTION', '这个账号不属于 AP 自学板块。');
     return studentApi(req, res, pathname, ctx);
   }
   if (pathname.startsWith('/api/supervisor/')) {
@@ -121,9 +127,17 @@ function handlePage(req, res, pathname) {
     return redirect(res, '/change-password');
   }
 
+  if (pathname in LEGACY) {
+    if (account.type !== 'student') return redirect(res, authRoutes.homeFor(account));
+    const query = new URL(req.url, 'http://localhost').search;
+    const ap = subjects.directionOf(account) === 'apdemo';
+    return redirect(res, subjects.studentHome(account) + (ap ? LEGACY[pathname] + query : ''));
+  }
+
   const route = PAGE_ROUTES[pathname];
   if (route) {
     if (route.role && route.role !== account.type) return redirect(res, authRoutes.homeFor(account));
+    if (route.direction && subjects.directionOf(account) !== route.direction) return redirect(res, authRoutes.homeFor(account)); // 进错了板块：送回自己的板块
     return sendFile(req, res, route.file, route.ownCsp ? {} : (route.csp ? { 'Content-Security-Policy': route.csp } : pageHeaders));
   }
 

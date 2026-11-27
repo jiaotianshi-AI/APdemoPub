@@ -12,7 +12,7 @@
 <body>
   <header class="topbar">
     <div class="topbar-inner">
-      <div class="brand">AP 专注学习 · 后台管理</div>
+      <div class="brand">Focus · 后台管理<span class="slogan">Focus. Steps. Progress.</span></div>
       <nav class="admin-nav" aria-label="后台导航">
         <a href="/admin" class="nav-link" aria-current="page">账号管理</a>
         <a href="/admin/ai" class="nav-link">AI 评分设置</a>
@@ -54,6 +54,33 @@
         <tbody id="rows"></tbody>
       </table>
     </div>
+
+    <section class="subjects" aria-labelledby="subjects-title">
+      <h2 id="subjects-title">科目管理</h2>
+      <p class="hint">学生账号的“学习科目”只能从这个列表里选。每个科目属于一个板块：AP 自学（/apdemo）或写作（/writing）。科目名称添加后不能修改，不再使用的可以停用（已有账号不受影响）。</p>
+      <div class="table-wrap">
+        <table id="subjects-table">
+          <caption class="sr-only">科目列表</caption>
+          <thead><tr><th scope="col">科目</th><th scope="col">板块</th><th scope="col">状态</th><th scope="col">操作</th></tr></thead>
+          <tbody id="subject-rows"></tbody>
+        </table>
+      </div>
+      <form id="subject-form" class="inline-form" novalidate>
+        <div class="field">
+          <label for="subject-name">新科目名称</label>
+          <input id="subject-name" type="text" maxlength="64" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="subject-direction">所属板块</label>
+          <select id="subject-direction">
+            <option value="apdemo">AP 自学（/apdemo）</option>
+            <option value="writing">写作（/writing）</option>
+          </select>
+        </div>
+        <button type="submit" class="btn primary" id="subject-add">添加科目</button>
+      </form>
+      <p id="subject-msg" class="msg" role="status" hidden></p>
+    </section>
   </main>
 
   <!-- 新建账号 -->
@@ -74,6 +101,11 @@
           <option value="support">客服</option>
         </select>
         <span class="hint">账号名和类型创建后不能修改。</span>
+      </div>
+      <div class="field" id="new-subject-field" hidden>
+        <label for="new-subject">学习科目</label>
+        <select id="new-subject"></select>
+        <span class="hint">学习科目创建后不能修改（保证学习数据和评价的连续性）。同一个学生要学习多个科目，请分别建立账号。科目决定学生登录后进入的板块（AP 自学或写作）。</span>
       </div>
       <div class="field">
         <label for="new-tz">所在时区</label>

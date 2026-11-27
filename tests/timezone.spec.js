@@ -8,7 +8,7 @@ const setTz = (id, tz) => require("../server/db").db.prepare("UPDATE accounts SE
 test("管理员新建账号可选时区，默认温哥华（-7）；时区可修改；无效时区被拒绝；列表带标签", async ({ playwright, baseURL }) => {
   const admin = await adminCtx(playwright, baseURL);
   const create = (data) => admin.post("/api/admin/accounts", { headers: H, data });
-  const dflt = await create({ username: uid("tzd"), type: "student" });
+  const dflt = await create({ username: uid("tzd"), type: "student", subject: "AP Biology" });
   expect(dflt.status()).toBe(201);
   let acc = (await dflt.json()).account;
   expect([acc.timezone, acc.tzLabel.zh, acc.tzLabel.en]).toEqual(["America/Vancouver", "温哥华，-7", "Vancouver, -7"]);
@@ -17,12 +17,12 @@ test("管理员新建账号可选时区，默认温哥华（-7）；时区可修
   acc = (await sh.json()).account;
   expect([acc.timezone, acc.tzLabel.zh]).toEqual(["Asia/Shanghai", "北京，+8"]);
   for (const bad of ["Mars/Base", "", 5, null, "america/vancouver"]) {
-    expect((await create({ username: uid("tzb"), type: "student", timezone: bad })).status(), String(bad)).toBe(422);
+    expect((await create({ username: uid("tzb"), type: "student", subject: "AP Biology", timezone: bad })).status(), String(bad)).toBe(422);
   }
   // 修改时区（可单独改，也可和关联一起改）
   let r = await admin.patch(`/api/admin/accounts/${acc.id}`, { headers: H, data: { timezone: "Asia/Tokyo" } });
   expect((await r.json()).account.tzLabel.zh).toBe("东京，+9");
-  const stu = (await (await create({ username: uid("tzst"), type: "student" })).json()).account;
+  const stu = (await (await create({ username: uid("tzst"), type: "student", subject: "AP Biology" })).json()).account;
   r = await admin.patch(`/api/admin/accounts/${acc.id}`, { headers: H, data: { timezone: "Europe/London", studentIds: [stu.id] } });
   const u = (await r.json()).account;
   expect([u.timezone, u.studentIds]).toEqual(["Europe/London", [stu.id]]);
@@ -223,6 +223,7 @@ test("管理页：新建/编辑账号时可选时区（默认温哥华），列�
   await expect(page.locator("#new-tz")).toHaveValue("America/Vancouver");
   await page.fill("#new-username", name);
   await page.selectOption("#new-type", "student");
+  await page.selectOption("#new-subject", "AP Biology");
   await page.selectOption("#new-tz", "Asia/Shanghai");
   await page.click("#create-submit");
   await page.click("#secret-dialog [data-close]");

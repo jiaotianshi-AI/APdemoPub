@@ -54,7 +54,7 @@ test.describe("未登录", () => {
     await page.fill("#username", "e2e_student");
     await page.fill("#password", PASSWORD);
     await page.click("#submit");
-    await expect(page).toHaveURL(/\/$/);
+    await expect(page).toHaveURL(/\/apdemo$/);
     await expect(page.locator("#mod-progress")).toBeVisible();
   });
 
@@ -77,9 +77,9 @@ test.describe("未登录", () => {
 
 test.describe("各角色进入各自页面", () => {
   const cases = [
-    ["student", "/", "/admin"],
-    ["supervisor", "/supervisor", "/"],
-    ["admin", "/admin", "/"],
+    ["student", "/apdemo", "/admin"],
+    ["supervisor", "/supervisor", "/apdemo"],
+    ["admin", "/admin", "/apdemo"],
     ["support", "/pending", "/admin"]
   ];
   for (const [role, home, forbidden] of cases) {
@@ -139,8 +139,8 @@ test.describe("首次登录必须改密码", () => {
 
     const ok = await request.post("/api/change-password", { headers: H, data: { oldPassword: temp, newPassword: "A-new-passw0rd" } });
     expect(ok.status()).toBe(200);
-    expect((await ok.json()).redirect).toBe("/");
-    expect((await request.get("/", { maxRedirects: 0 })).status()).toBe(200);
+    expect((await ok.json()).redirect).toBe("/apdemo");
+    expect((await request.get("/apdemo", { maxRedirects: 0 })).status()).toBe(200);
 
     // 旧密码不能再登录，新密码可以
     const again = await request.post("/api/login", { headers: H, data: { username: name, password: temp } });

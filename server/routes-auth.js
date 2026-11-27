@@ -4,9 +4,12 @@ const { db, audit } = require('./db');
 const auth = require('./auth');
 const { httpError, readJson, sendJson } = require('./http');
 const tzs = require('./timezones');
+const subjects = require('./subjects');
 
-const HOME = { student: '/', supervisor: '/supervisor', support: '/pending', admin: '/admin' };
-function homeFor(account) { return account.must_change_password ? '/change-password' : HOME[account.type]; }
+const HOME = { supervisor: '/supervisor', support: '/pending', admin: '/admin' };
+// 登录后的首页：学生按所属学习板块（/apdemo 或 /writing），其他角色各有固定首页
+function roleHome(account) { return account.type === 'student' ? subjects.studentHome(account) : HOME[account.type]; }
+function homeFor(account) { return account.must_change_password ? '/change-password' : roleHome(account); }
 
 function clientIp(req) {
   // 服务只监听本机，由 Caddy 转发；Caddy 会把真实客户端 IP 追加在 X-Forwarded-For 末尾
@@ -17,7 +20,8 @@ function clientIp(req) {
 function me(account) {
   return {
     id: account.id, username: account.username, type: account.type, mustChangePassword: !!account.must_change_password,
-    timezone: account.timezone, tzLabel: tzs.label(account.timezone)
+    timezone: account.timezone, tzLabel: tzs.label(account.timezone),
+    direction: subjects.directionOf(account)
   };
 }
 
@@ -70,7 +74,7 @@ async function changePassword(req, res, ctx) {
   auth.deleteAccountSessions(account.id); // 旧会话全部作废，重新签发
   const { token, expires } = auth.createSession(account.id);
   audit(account.username, 'change_password', account.username);
-  sendJson(res, 200, { ok: true, redirect: HOME[account.type] }, { 'Set-Cookie': auth.sessionCookie(token, expires) });
+  sendJson(res, 200, { ok: true, redirect: roleHome(account) }, { 'Set-Cookie': auth.sessionCookie(token, expires) });
 }
 
-module.exports = { HOME, homeFor, login, logout, changePassword, me };
+module.exports = { HOME, roleHome, homeFor, login, logout, changePassword, me };

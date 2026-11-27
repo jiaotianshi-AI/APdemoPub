@@ -6,7 +6,7 @@ test.use({ storageState: state("admin") });
 
 async function create(request, type, name) {
   const username = name || uid(type.slice(0, 3));
-  const res = await request.post("/api/admin/accounts", { headers: H, data: { username, type } });
+  const res = await request.post("/api/admin/accounts", { headers: H, data: { username, type, ...(type === "student" ? { subject: "AP Biology" } : {}) } });
   expect(res.status(), await res.text()).toBe(201);
   return { ...(await res.json()), username };
 }
@@ -29,10 +29,10 @@ test("新建三种账号：返回一次性初始密码，列表里看不到密�
 test("账号名校验与不分大小写的唯一性；类型必须是三种之一", async ({ request }) => {
   const name = uid("dup");
   await create(request, "student", name);
-  const same = await request.post("/api/admin/accounts", { headers: H, data: { username: name.toUpperCase(), type: "student" } });
+  const same = await request.post("/api/admin/accounts", { headers: H, data: { username: name.toUpperCase(), type: "student", subject: "AP Biology" } });
   expect(same.status()).toBe(409);
   for (const bad of ["a", "有 空格", "x".repeat(33), "<b>x</b>", "a/b"]) {
-    const r = await request.post("/api/admin/accounts", { headers: H, data: { username: bad, type: "student" } });
+    const r = await request.post("/api/admin/accounts", { headers: H, data: { username: bad, type: "student", subject: "AP Biology" } });
     expect(r.status(), bad).toBe(422);
   }
   for (const type of ["admin", "parent", "", undefined]) {
@@ -54,23 +54,69 @@ test("账号名和类型创建后不能修改", async ({ request }) => {
   expect(same.type).toBe("student");
 });
 
-test("学生：设置/修改/清空学习科目（允许为空）", async ({ request }) => {
+test("学生：创建时必须从科目列表里选学习科目；建立后不能修改（保证学习数据的连续性）", async ({ request }) => {
+  // 创建时缺科目 / 不在列表里
+  for (const subject of [undefined, "", "  ", "Not In The List", 123, null]) {
+    const r = await request.post("/api/admin/accounts", { headers: H, data: { username: uid("nosub"), type: "student", subject } });
+    expect(r.status(), String(subject)).toBe(422);
+    expect((await r.json()).error).toBe("INVALID_SUBJECT");
+  }
   const { account } = await create(request, "student");
-  expect(account.subject).toBe("");
-  let r = await patch(request, account.id, { subject: "  AP   Biology " });
-  expect((await r.json()).account.subject).toBe("AP Biology");
-  r = await patch(request, account.id, { subject: "AP Chemistry" });
-  expect((await r.json()).account.subject).toBe("AP Chemistry");
-  r = await patch(request, account.id, { subject: "" });
-  expect((await r.json()).account.subject).toBe("");
-  r = await patch(request, account.id, { subject: null });
+  expect([account.subject, account.direction, account.subjectLocked]).toEqual(["AP Biology", "apdemo", true]);
+  // 不能改成别的科目，也不能清空
+  for (const subject of ["Writing", "AP Biology X", "", null]) {
+    const r = await patch(request, account.id, { subject });
+    expect([r.status(), (await r.json()).error], String(subject)).toEqual(subject === "Writing" ? [409, "SUBJECT_LOCKED"] : subject === "AP Biology X" ? [422, "INVALID_SUBJECT"] : [422, "INVALID_SUBJECT"]);
+  }
+  // 提交原来的科目是允许的（没有变化）
+  expect((await patch(request, account.id, { subject: "AP Biology" })).status()).toBe(200);
+  expect((await patch(request, account.id, { subject: "ap biology" })).status()).toBe(200); // 不分大小写，仍是同一个科目
+  expect((await patch(request, account.id, { studentIds: [] })).status()).toBe(400); // 学生不能设置别的字段
+  const list = (await (await request.get("/api/admin/accounts")).json()).accounts;
+  expect(list.find((a) => a.id === account.id).subject).toBe("AP Biology");
+});
+
+test("旧账号没有学习科目：可以设置一次，设置后锁定；Writing 科目属于 writing 板块", async ({ request }) => {
+  const { db } = require("../server/db");
+  const { account } = await create(request, "student");
+  db.prepare("UPDATE accounts SET subject = NULL WHERE id = ?").run(account.id); // 模拟旧数据
+  let list = (await (await request.get("/api/admin/accounts")).json()).accounts;
+  const old = list.find((a) => a.id === account.id);
+  expect([old.subject, old.subjectLocked, old.direction]).toEqual(["", false, "apdemo"]); // 没有科目的旧账号按 apdemo 处理
+  let r = await patch(request, account.id, { subject: "Writing" });
   expect(r.status()).toBe(200);
-  r = await patch(request, account.id, { subject: "x".repeat(65) });
-  expect(r.status()).toBe(422);
-  r = await patch(request, account.id, { subject: 123 });
-  expect(r.status()).toBe(422);
-  r = await patch(request, account.id, { studentIds: [] }); // 学生不能设置别的字段
-  expect(r.status()).toBe(400);
+  const a = (await r.json()).account;
+  expect([a.subject, a.direction, a.subjectLocked]).toEqual(["Writing", "writing", true]);
+  r = await patch(request, account.id, { subject: "AP Biology" });
+  expect([r.status(), (await r.json()).error]).toEqual([409, "SUBJECT_LOCKED"]);
+});
+
+test("科目管理：列表、添加（名称不分大小写唯一、必须指定板块）、停用/启用；停用的科目不能用于新账号，已有账号不受影响", async ({ request }) => {
+  const list = (await (await request.get("/api/admin/subjects")).json()).subjects;
+  expect(list.find((s) => s.name === "AP Biology")).toMatchObject({ direction: "apdemo", disabled: false });
+  expect(list.find((s) => s.name === "Writing")).toMatchObject({ direction: "writing", disabled: false });
+  const name = "AP Test " + uid("s");
+  const add = (data) => request.post("/api/admin/subjects", { headers: H, data });
+  let r = await add({ name, direction: "apdemo" });
+  expect(r.status()).toBe(201);
+  const created = (await r.json()).subjects.find((s) => s.name === name);
+  expect(created.direction).toBe("apdemo");
+  expect((await add({ name: name.toUpperCase(), direction: "apdemo" })).status()).toBe(409);
+  for (const bad of [{ name: "", direction: "apdemo" }, { name: "x".repeat(65), direction: "apdemo" }, { name: "ok " + uid("b"), direction: "sat" }, { name: "ok " + uid("c") }]) expect((await add(bad)).status(), JSON.stringify(bad)).toBe(422);
+  // 用这个科目建学生，再停用科目
+  const stu = await request.post("/api/admin/accounts", { headers: H, data: { username: uid("subj"), type: "student", subject: name } });
+  expect(stu.status()).toBe(201);
+  r = await request.post(`/api/admin/subjects/${created.id}/disable`, { headers: H });
+  expect((await r.json()).subjects.find((s) => s.id === created.id).disabled).toBe(true);
+  const again = await request.post("/api/admin/accounts", { headers: H, data: { username: uid("subj"), type: "student", subject: name } });
+  expect([again.status(), (await again.json()).error]).toEqual([422, "SUBJECT_DISABLED"]);
+  const stuName = (await stu.json()).account.username;
+  const accounts = (await (await request.get("/api/admin/accounts")).json()).accounts;
+  expect(accounts.find((a) => a.username === stuName).subject).toBe(name); // 已有账号不受影响
+  r = await request.post(`/api/admin/subjects/${created.id}/enable`, { headers: H });
+  expect((await r.json()).subjects.find((s) => s.id === created.id).disabled).toBe(false);
+  expect((await request.post("/api/admin/subjects/99999999/disable", { headers: H })).status()).toBe(404);
+  expect((await request.get("/api/admin/accounts")).status()).toBe(200);
 });
 
 test("督导者：关联多个学生，可修改、可清空；只能关联学生", async ({ request }) => {

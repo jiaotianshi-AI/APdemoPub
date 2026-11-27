@@ -232,3 +232,7 @@ a { color: var(--c-primary); }
 .t-group-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
 .t-group-head .t-group-title { margin: 0; }
 .t-toggle-all { min-height: 44px; padding: 0 14px; font-size: 0.9375rem; }
+
+/* 品牌副标题（slogan） */
+.brand .slogan { display: block; font-size: 0.75rem; font-weight: 500; color: var(--c-muted); letter-spacing: 0.02em; }
+@media (max-width: 560px) { .brand .slogan { display: none; } }

@@ -76,4 +76,4 @@ dpkg-reconfigure -f noninteractive unattended-upgrades || true
 echo
 echo "完成。下一步："
 echo "  1) 创建第一个管理员账号：sudo bash $HERE/create-admin.sh 你的管理员账号名"
-echo "  2) 浏览器打开 https://apdemo.locprof.com/ 登录（腾讯云防火墙需放行 TCP 80、443、UDP 443，DNS 需已指向本机）"
+echo "  2) 浏览器打开 https://focus.locprof.com/ 登录（腾讯云防火墙需放行 TCP 80、443、UDP 443，DNS 需已指向本机）"

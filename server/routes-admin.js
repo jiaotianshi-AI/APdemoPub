@@ -5,6 +5,7 @@ const auth = require('./auth');
 const { httpError, readJson, sendJson } = require('./http');
 const files = require('./files');
 const tzs = require('./timezones');
+const subjects = require('./subjects');
 const { wallToIso, dateToIso } = require('./timeutil');
 
 const MANAGED_TYPES = ['student', 'supervisor', 'support'];
@@ -24,7 +25,7 @@ function serialize(a, links) {
     createdAt: a.created_at,
     lastLoginAt: a.last_login_at || null
   };
-  if (a.type === 'student') out.subject = a.subject || '';
+  if (a.type === 'student') { out.subject = a.subject || ''; out.direction = subjects.directionOf(a); out.subjectLocked = !!a.subject; }
   if (a.type === 'supervisor') out.studentIds = links.studentIds.get(a.id) || [];
   if (a.type === 'support') out.supervisorIds = links.supervisorIds.get(a.id) || [];
   return out;
@@ -51,12 +52,13 @@ function getManaged(idText) {
   return row;
 }
 
-function cleanSubject(value) {
-  if (value === null || value === undefined) return null;
-  if (typeof value !== 'string') throw httpError(422, 'INVALID_SUBJECT', '学习科目必须是文字。');
-  const text = value.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
-  if ([...text].length > SUBJECT_MAX) throw httpError(422, 'INVALID_SUBJECT', `学习科目不能超过 ${SUBJECT_MAX} 个字符。`);
-  return text === '' ? null : text;
+// 学习科目必须来自管理员维护的科目列表（科目决定学生所在的学习板块）
+function cleanSubject(value, { allowCurrent } = {}) {
+  if (typeof value !== 'string' || !value.trim()) throw httpError(422, 'INVALID_SUBJECT', '请从列表里选择学习科目。');
+  const row = subjects.byName(value.trim());
+  if (!row) throw httpError(422, 'INVALID_SUBJECT', '这个学习科目不在科目列表里，请先在“科目管理”里添加。');
+  if (row.disabled && row.name !== allowCurrent) throw httpError(422, 'SUBJECT_DISABLED', '这个学习科目已停用，请选择其他科目。');
+  return row.name;
 }
 
 function cleanIds(value, targetType) {
@@ -86,7 +88,7 @@ async function listAccounts(req, res, url) {
     ? db.prepare('SELECT * FROM accounts WHERE type = ? ORDER BY id').all(type)
     : db.prepare("SELECT * FROM accounts WHERE type != 'admin' ORDER BY id").all();
   const links = loadLinks();
-  sendJson(res, 200, { accounts: rows.map((r) => serialize(r, links)), timezones: tzs.publicList(), defaultTimezone: tzs.DEFAULT_TZ });
+  sendJson(res, 200, { accounts: rows.map((r) => serialize(r, links)), timezones: tzs.publicList(), defaultTimezone: tzs.DEFAULT_TZ, subjects: subjects.list() });
 }
 
 async function createAccount(req, res, ctx) {
@@ -98,17 +100,19 @@ async function createAccount(req, res, ctx) {
   if (!tzs.isValid(timezone)) throw httpError(422, 'INVALID_TIMEZONE', '请选择有效的时区。');
   const key = auth.usernameKey(username);
   if (db.prepare('SELECT 1 FROM accounts WHERE username_key = ?').get(key)) throw httpError(409, 'USERNAME_TAKEN', '这个账号名已经被使用。');
+  // 学生账号创建时必须选择学习科目；创建后不能再改（保证学习数据和评价的连续性）
+  const subject = body.type === 'student' ? cleanSubject(body.subject) : null;
 
   const initialPassword = auth.generatePassword(12);
   const hash = await auth.hashPassword(initialPassword);
   let id;
   try {
-    id = db.prepare('INSERT INTO accounts (username, username_key, type, password_hash, must_change_password, timezone, created_at) VALUES (?, ?, ?, ?, 1, ?, ?)')
-      .run(username, key, body.type, hash, timezone, new Date().toISOString()).lastInsertRowid;
+    id = db.prepare('INSERT INTO accounts (username, username_key, type, password_hash, must_change_password, timezone, subject, created_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?)')
+      .run(username, key, body.type, hash, timezone, subject, new Date().toISOString()).lastInsertRowid;
   } catch (e) {
     throw httpError(409, 'USERNAME_TAKEN', '这个账号名已经被使用。');
   }
-  audit(ctx.account.username, 'create_account', username, body.type + ' ' + timezone);
+  audit(ctx.account.username, 'create_account', username, body.type + ' ' + timezone + (subject ? ' ' + subject : ''));
   respondAccount(res, 201, Number(id), { initialPassword });
 }
 
@@ -124,7 +128,13 @@ async function updateAccount(req, res, ctx, idText) {
 
   // 先全部校验，再写入（避免只改了一半）
   if ('timezone' in body && !tzs.isValid(body.timezone)) throw httpError(422, 'INVALID_TIMEZONE', '请选择有效的时区。');
-  const subjectValue = target.type === 'student' && 'subject' in body ? cleanSubject(body.subject) : undefined;
+  let subjectValue;
+  if (target.type === 'student' && 'subject' in body) {
+    subjectValue = cleanSubject(body.subject, { allowCurrent: target.subject });
+    // 学习科目一旦设定就不能修改；要换科目请新建账号（账号内换科目会打乱学习数据和评价的连续性）
+    if (target.subject && subjectValue !== target.subject) throw httpError(409, 'SUBJECT_LOCKED', '学习科目建立后不能修改。要学习其他科目，请新建一个学生账号。');
+    if (target.subject) subjectValue = undefined; // 与原来相同，无需改动
+  }
   const studentIds = target.type === 'supervisor' && 'studentIds' in body ? cleanIds(body.studentIds, 'student') : null;
   const supervisorIds = target.type === 'support' && 'supervisorIds' in body ? cleanIds(body.supervisorIds, 'supervisor') : null;
 
@@ -148,7 +158,7 @@ async function updateAccount(req, res, ctx, idText) {
   }
   if (subjectValue !== undefined) {
     db.prepare('UPDATE accounts SET subject = ? WHERE id = ?').run(subjectValue, target.id);
-    audit(ctx.account.username, 'update_subject', target.username, subjectValue || '(空)');
+    audit(ctx.account.username, 'update_subject', target.username, subjectValue);
   } else if (studentIds) {
     const ids = studentIds;
     transaction(() => {
@@ -196,6 +206,26 @@ function deleteAccount(res, ctx, idText) {
   sendJson(res, 200, { ok: true });
 }
 
+// 科目管理：新增科目（名称 + 所属板块）、停用/启用。名称建立后不能改（账号和测试记录里引用着它）
+async function createSubject(req, res, ctx) {
+  const body = await readJson(req);
+  const name = typeof body.name === 'string' ? body.name.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim() : '';
+  if (!name || [...name].length > SUBJECT_MAX) throw httpError(422, 'INVALID_SUBJECT_NAME', `科目名称为 1–${SUBJECT_MAX} 个字符。`);
+  if (!subjects.DIRECTIONS.includes(body.direction)) throw httpError(422, 'INVALID_DIRECTION', '请选择科目所属的板块（AP 自学或写作）。');
+  if (subjects.byName(name)) throw httpError(409, 'SUBJECT_EXISTS', '已经有这个科目了。');
+  db.prepare('INSERT INTO subjects (name, direction, created_at) VALUES (?, ?, ?)').run(name, body.direction, new Date().toISOString());
+  audit(ctx.account.username, 'create_subject', name, body.direction);
+  sendJson(res, 201, { subjects: subjects.list() });
+}
+function setSubjectDisabled(res, ctx, idText, disabled) {
+  const id = Number(idText);
+  const row = Number.isInteger(id) ? db.prepare('SELECT * FROM subjects WHERE id = ?').get(id) : null;
+  if (!row) throw httpError(404, 'NOT_FOUND', '没有这个科目。');
+  db.prepare('UPDATE subjects SET disabled = ? WHERE id = ?').run(disabled ? 1 : 0, row.id);
+  audit(ctx.account.username, disabled ? 'disable_subject' : 'enable_subject', row.name);
+  sendJson(res, 200, { subjects: subjects.list() });
+}
+
 module.exports = async function adminApi(req, res, pathname, ctx) {
   if (pathname === '/api/admin/ai' || pathname.startsWith('/api/admin/ai/')) return require('./routes-admin-ai')(req, res, pathname, ctx);
   const url = new URL(req.url, 'http://localhost');
@@ -204,6 +234,13 @@ module.exports = async function adminApi(req, res, pathname, ctx) {
     if (req.method === 'POST') return createAccount(req, res, ctx);
     throw httpError(405, 'METHOD_NOT_ALLOWED', '不支持这个请求方式。');
   }
+  if (pathname === '/api/admin/subjects') {
+    if (req.method === 'GET') return sendJson(res, 200, { subjects: subjects.list() });
+    if (req.method === 'POST') return createSubject(req, res, ctx);
+    throw httpError(405, 'METHOD_NOT_ALLOWED', '不支持这个请求方式。');
+  }
+  const sm = /^\/api\/admin\/subjects\/([^/]+)\/(disable|enable)$/.exec(pathname);
+  if (sm && req.method === 'POST') return setSubjectDisabled(res, ctx, sm[1], sm[2] === 'disable');
   const m = /^\/api\/admin\/accounts\/([^/]+)(?:\/(reset-password|disable|enable))?$/.exec(pathname);
   if (m) {
     const [, id, action] = m;

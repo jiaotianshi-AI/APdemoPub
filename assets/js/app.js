@@ -139,7 +139,7 @@
       var acts = el("div", "assessment-actions");
       if (asm && asm.status === "in_progress") {
         var cont = el("a", "card-btn primary", t("tests.resume"));
-        cont.href = "/exam?id=" + asm.id;
+        cont.href = "/apdemo/exam?id=" + asm.id;
         acts.appendChild(cont);
       } else if (asm && asm.status === "scheduled") {
         var early = Date.now() < Date.parse(asm.scheduledAt);
@@ -496,11 +496,11 @@
       act.appendChild(b);
     } else if (a.status === "in_progress") {
       var r = el("a", "card-btn primary", t("tests.resume"));
-      r.href = "/exam?id=" + a.id;
+      r.href = "/apdemo/exam?id=" + a.id;
       act.appendChild(r);
     } else {
       var v = el("a", "card-btn", t("tests.review"));
-      v.href = "/exam?id=" + a.id;
+      v.href = "/apdemo/exam?id=" + a.id;
       v.setAttribute("aria-label", t("tests.review") + "：" + a.subject + " · " + a.unit);
       act.appendChild(v);
     }
@@ -535,7 +535,7 @@
         var yes = el("button", "card-btn primary", t("common.confirm"));
         yes.type = "button";
         yes.id = "confirm-start-yes";
-        yes.addEventListener("click", function () { window.location.href = "/exam?id=" + a.id + (early ? "&early=1" : ""); });
+        yes.addEventListener("click", function () { window.location.href = "/apdemo/exam?id=" + a.id + (early ? "&early=1" : ""); });
         row.appendChild(no);
         row.appendChild(yes);
         wrap.appendChild(row);
@@ -547,7 +547,12 @@
   /* ---------- 其他 ---------- */
   function renderBrand() {
     var node = body("brand");
-    if (node) node.textContent = pick(window.APConfig.brandName);
+    if (!node) return;
+    node.textContent = pick(window.APConfig.brandName);
+    var sl = document.createElement("span");
+    sl.className = "slogan";
+    sl.textContent = pick(window.APConfig.slogan);
+    node.appendChild(sl);
   }
   function markLangButtons() {
     var cur = i18n.getLang();

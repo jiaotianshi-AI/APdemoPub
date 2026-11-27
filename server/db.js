@@ -201,6 +201,23 @@ if (!db.prepare('PRAGMA table_info(ai_grades)').all().some((c) => c.name === 'pr
   db.exec('ALTER TABLE ai_grades ADD COLUMN provider TEXT'); // 6 = AI 服务商（Anthropic / OpenAI / DeepSeek / 自定义）
 }
 if (startVersion < 6) db.exec('PRAGMA user_version = 6'); // 4 = 账号时区；5 = AI 判分（设置、判分标准、判分记录）；6 = AI 服务商
+
+// 7 = 学习科目固定列表（每个科目对应一个学习板块：apdemo 或 writing）。旧账号里已有的科目全部登记为 apdemo 板块
+db.exec(`CREATE TABLE IF NOT EXISTS subjects (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  direction TEXT NOT NULL CHECK (direction IN ('apdemo', 'writing')),
+  disabled INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+)`);
+if (startVersion < 7) {
+  const now = new Date().toISOString();
+  const ins = db.prepare("INSERT OR IGNORE INTO subjects (name, direction, created_at) VALUES (?, ?, ?)");
+  ins.run('AP Biology', 'apdemo', now);
+  ins.run('Writing', 'writing', now);
+  for (const r of db.prepare("SELECT DISTINCT subject FROM accounts WHERE type = 'student' AND subject IS NOT NULL AND subject != ''").all()) ins.run(r.subject, 'apdemo', now);
+  db.exec('PRAGMA user_version = 7');
+}
  // 2 = 加入每题回答 PDF 与评分；3 = 加入每题权重（都只是新增表，不改旧数据）
 
 // 事务辅助：fn 抛异常则回滚
