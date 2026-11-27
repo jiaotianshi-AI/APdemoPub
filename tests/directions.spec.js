@@ -74,7 +74,8 @@ test("督导者页：学生列表标明板块；写作学生不显示 AP 测试�
   await expect(page.locator(".student-btn", { hasText: ap.username })).toContainText("AP 自学");
   await expect(page.locator(".student-btn", { hasText: wr.username })).toContainText("写作");
   await page.locator(".student-btn", { hasText: wr.username }).click();
-  await expect(page.locator("#lists")).toContainText("写作板块");
+  await expect(page.locator("#writing-area")).toBeVisible();
+  await expect(page.locator("#w-sched-title")).toHaveText("写作日程");
   await expect(page.locator("#new-btn")).toBeHidden();
   await page.locator(".student-btn", { hasText: ap.username }).click();
   await expect(page.locator("#new-btn")).toBeVisible();

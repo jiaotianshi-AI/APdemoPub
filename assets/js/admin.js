@@ -44,7 +44,11 @@
   }
 
   function linkText(a) {
-    if (a.type === "student") return a.subject ? "学习科目：" + a.subject + "（" + DIRECTION_LABEL[a.direction] + "）" : "学习科目：未设置";
+    if (a.type === "student") {
+      var t = a.subject ? "学习科目：" + a.subject + "（" + DIRECTION_LABEL[a.direction] + "）" : "学习科目：未设置";
+      if (a.direction === "writing") t += "　年级：" + (a.gradeLabel ? a.gradeLabel.zh : "未设置");
+      return t;
+    }
     if (a.type === "supervisor") return a.studentIds.length ? "关联学生：" + a.studentIds.map(nameOf).join("、") : "未关联学生";
     return a.supervisorIds.length ? "服务督导者：" + a.supervisorIds.map(nameOf).join("、") : "未关联督导者";
   }
@@ -94,6 +98,28 @@
       showMsg("subject-msg", "已添加科目：" + name + "。", "ok");
     }).catch(function (err) { showMsg("subject-msg", err.message); });
   });
+  function fillGradeSelect(sel, current) {
+    clear(sel);
+    var blank = el("option", "", "请选择…");
+    blank.value = "";
+    sel.appendChild(blank);
+    (state.grades || []).forEach(function (g) {
+      var o = el("option", "", g.label.zh);
+      o.value = g.code;
+      sel.appendChild(o);
+    });
+    sel.value = current || "";
+  }
+  function isWritingSubject(name) {
+    return (state.subjects || []).some(function (s) { return s.name === name && s.direction === "writing"; });
+  }
+  function syncCreateFields() {
+    var student = $("new-type").value === "student";
+    $("new-subject-field").hidden = !student;
+    var writing = student && isWritingSubject($("new-subject").value);
+    $("new-grade-field").hidden = !writing;
+    $("new-consent-field").hidden = !writing;
+  }
   function fillSubjectSelect(sel, current) {
     clear(sel);
     var blank = el("option", "", "请选择…");
@@ -153,6 +179,7 @@
       state.timezones = data.timezones || [];
       state.defaultTz = data.defaultTimezone || state.defaultTz;
       state.subjects = data.subjects || [];
+      state.grades = data.grades || [];
       renderSubjects();
       setStatus("共 " + data.accounts.length + " 个账号。");
       render();
@@ -218,12 +245,15 @@
     $("create-form").reset();
     fillTzSelect($("new-tz"), state.defaultTz);
     fillSubjectSelect($("new-subject"), "");
-    $("new-subject-field").hidden = true;
+    fillGradeSelect($("new-grade"), "");
+    $("new-consent").checked = false;
+    syncCreateFields();
     showMsg("create-error", "");
     openDialog($("create-dialog"));
     $("new-username").focus();
   });
-  $("new-type").addEventListener("change", function () { $("new-subject-field").hidden = $("new-type").value !== "student"; });
+  $("new-type").addEventListener("change", syncCreateFields);
+  $("new-subject").addEventListener("change", syncCreateFields);
   $("create-form").addEventListener("submit", function (e) {
     e.preventDefault();
     showMsg("create-error", "");
@@ -235,6 +265,12 @@
     if (type === "student") {
       if (!$("new-subject").value) return showMsg("create-error", "请为学生选择学习科目。");
       payload.subject = $("new-subject").value;
+      if (isWritingSubject(payload.subject)) {
+        if (!$("new-grade").value) return showMsg("create-error", "请选择学生的年级。");
+        if (!$("new-consent").checked) return showMsg("create-error", "请确认已获得监护人同意。");
+        payload.grade = $("new-grade").value;
+        payload.consent = true;
+      }
     }
     $("create-submit").disabled = true;
     api("POST", "/api/admin/accounts", payload).then(function (data) {
@@ -306,6 +342,19 @@
         f.appendChild(el("span", "hint", "这个学生还没有学习科目。设定后不能再修改。"));
       }
       host.appendChild(f);
+      if (a.direction === "writing") {
+        var gf = el("div", "field");
+        var gl = el("label", "", "年级");
+        gl.htmlFor = "edit-grade";
+        var gs = el("select");
+        gs.id = "edit-grade";
+        fillGradeSelect(gs, a.grade);
+        gf.appendChild(gl);
+        gf.appendChild(gs);
+        gf.appendChild(el("span", "hint", "升年级时在这里修改。已有作文记录里保存的是当天的年级，不受影响。"));
+        host.appendChild(gf);
+        host.appendChild(el("p", "hint", a.consentAt ? "监护人同意：已确认（" + a.consentAt.slice(0, 10) + "，由 " + a.consentBy + " 记录）。" : "监护人同意：没有记录。"));
+      }
     } else {
       var isSup = a.type === "supervisor";
       var fs = el("fieldset");
@@ -324,7 +373,13 @@
     if (!editing) return;
     showMsg("edit-error", "");
     var body;
-    if (editing.type === "student") body = $("edit-subject") && $("edit-subject").value ? { subject: $("edit-subject").value } : {};
+    if (editing.type === "student") {
+      body = $("edit-subject") && $("edit-subject").value ? { subject: $("edit-subject").value } : {};
+      if ($("edit-grade")) {
+        if (!$("edit-grade").value) return showMsg("edit-error", "请选择年级。");
+        body.grade = $("edit-grade").value;
+      }
+    }
     else {
       var ids = Array.prototype.map.call($("edit-fields").querySelectorAll('input[type="checkbox"]:checked'), function (c) { return Number(c.value); });
       body = editing.type === "supervisor" ? { studentIds: ids } : { supervisorIds: ids };

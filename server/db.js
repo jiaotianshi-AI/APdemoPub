@@ -218,6 +218,74 @@ if (startVersion < 7) {
   for (const r of db.prepare("SELECT DISTINCT subject FROM accounts WHERE type = 'student' AND subject IS NOT NULL AND subject != ''").all()) ins.run(r.subject, 'apdemo', now);
   db.exec('PRAGMA user_version = 7');
 }
+
+// 8 = 写作板块：学生的年级、监护人同意记录，以及写作日程、题目库、每天一篇的作文、每一轮建议、最终评分、安全标记
+for (const [col, ddl] of [['grade', 'TEXT'], ['consent_at', 'TEXT'], ['consent_by', 'TEXT']]) {
+  if (!db.prepare('PRAGMA table_info(accounts)').all().some((c) => c.name === col)) db.exec(`ALTER TABLE accounts ADD COLUMN ${col} ${ddl}`);
+}
+db.exec(`
+CREATE TABLE IF NOT EXISTS writing_schedules (
+  student_id INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+  time_of_day TEXT NOT NULL,              -- 'HH:MM'，学生所在时区的当地时间
+  days INTEGER NOT NULL DEFAULT 127,      -- 星期位图：bit0=周一 … bit6=周日
+  paused INTEGER NOT NULL DEFAULT 0,
+  start_date TEXT NOT NULL,               -- 生效起始日（学生当地日期）
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS writing_prompts (
+  id INTEGER PRIMARY KEY,
+  student_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  hint TEXT,
+  used_at TEXT,                           -- 孩子选写这个题目的时间；已用的题目不能再修改或删除
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_writing_prompts_student ON writing_prompts(student_id);
+CREATE TABLE IF NOT EXISTS writing_sessions (
+  id INTEGER PRIMARY KEY,
+  student_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  day TEXT NOT NULL,                      -- 学生当地日期，每天一篇
+  prompt_id INTEGER REFERENCES writing_prompts(id) ON DELETE SET NULL,
+  prompt_title TEXT NOT NULL,
+  grade TEXT,                             -- 当天的年级快照
+  status TEXT NOT NULL DEFAULT 'writing' CHECK (status IN ('writing', 'done')),
+  draft TEXT NOT NULL DEFAULT '',
+  final_text TEXT,
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  UNIQUE (student_id, day)
+);
+CREATE TABLE IF NOT EXISTS writing_turns (
+  id INTEGER PRIMARY KEY,
+  session_id INTEGER NOT NULL REFERENCES writing_sessions(id) ON DELETE CASCADE,
+  round INTEGER NOT NULL,
+  essay TEXT NOT NULL,                    -- 这一轮开始时的作文快照
+  score INTEGER CHECK (score BETWEEN 1 AND 5),
+  feedback TEXT,
+  questions TEXT,                         -- JSON：[{type, text, quote}]
+  answers TEXT,                           -- JSON：孩子的回答
+  done INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  UNIQUE (session_id, round)
+);
+CREATE TABLE IF NOT EXISTS writing_grades (
+  session_id INTEGER PRIMARY KEY REFERENCES writing_sessions(id) ON DELETE CASCADE,
+  ai_score INTEGER CHECK (ai_score BETWEEN 1 AND 5),
+  supervisor_score INTEGER CHECK (supervisor_score BETWEEN 1 AND 5),
+  supervisor_comment TEXT,
+  model TEXT,
+  provider TEXT,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS writing_flags (
+  id INTEGER PRIMARY KEY,
+  session_id INTEGER NOT NULL REFERENCES writing_sessions(id) ON DELETE CASCADE,
+  reason TEXT,
+  reviewed INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+`);
+if (startVersion < 8) db.exec('PRAGMA user_version = 8');
  // 2 = 加入每题回答 PDF 与评分；3 = 加入每题权重（都只是新增表，不改旧数据）
 
 // 事务辅助：fn 抛异常则回滚

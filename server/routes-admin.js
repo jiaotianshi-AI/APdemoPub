@@ -6,10 +6,11 @@ const { httpError, readJson, sendJson } = require('./http');
 const files = require('./files');
 const tzs = require('./timezones');
 const subjects = require('./subjects');
+const grades = require('./grades');
 const { wallToIso, dateToIso } = require('./timeutil');
 
 const MANAGED_TYPES = ['student', 'supervisor', 'support'];
-const EDITABLE = { student: ['subject', 'timezone'], supervisor: ['studentIds', 'timezone'], support: ['supervisorIds', 'timezone'] };
+const EDITABLE = { student: ['subject', 'grade', 'timezone'], supervisor: ['studentIds', 'timezone'], support: ['supervisorIds', 'timezone'] };
 const LINK_TARGET_TYPE = { studentIds: 'student', supervisorIds: 'supervisor' };
 const SUBJECT_MAX = 64;
 
@@ -25,7 +26,15 @@ function serialize(a, links) {
     createdAt: a.created_at,
     lastLoginAt: a.last_login_at || null
   };
-  if (a.type === 'student') { out.subject = a.subject || ''; out.direction = subjects.directionOf(a); out.subjectLocked = !!a.subject; }
+  if (a.type === 'student') {
+    out.subject = a.subject || ''; out.direction = subjects.directionOf(a); out.subjectLocked = !!a.subject;
+    if (out.direction === 'writing') {
+      out.grade = a.grade || '';
+      out.gradeLabel = a.grade ? grades.label(a.grade) : null;
+      out.consentAt = a.consent_at || null;
+      out.consentBy = a.consent_by || null;
+    }
+  }
   if (a.type === 'supervisor') out.studentIds = links.studentIds.get(a.id) || [];
   if (a.type === 'support') out.supervisorIds = links.supervisorIds.get(a.id) || [];
   return out;
@@ -88,7 +97,7 @@ async function listAccounts(req, res, url) {
     ? db.prepare('SELECT * FROM accounts WHERE type = ? ORDER BY id').all(type)
     : db.prepare("SELECT * FROM accounts WHERE type != 'admin' ORDER BY id").all();
   const links = loadLinks();
-  sendJson(res, 200, { accounts: rows.map((r) => serialize(r, links)), timezones: tzs.publicList(), defaultTimezone: tzs.DEFAULT_TZ, subjects: subjects.list() });
+  sendJson(res, 200, { accounts: rows.map((r) => serialize(r, links)), timezones: tzs.publicList(), defaultTimezone: tzs.DEFAULT_TZ, subjects: subjects.list(), grades: grades.LIST });
 }
 
 async function createAccount(req, res, ctx) {
@@ -102,17 +111,25 @@ async function createAccount(req, res, ctx) {
   if (db.prepare('SELECT 1 FROM accounts WHERE username_key = ?').get(key)) throw httpError(409, 'USERNAME_TAKEN', '这个账号名已经被使用。');
   // 学生账号创建时必须选择学习科目；创建后不能再改（保证学习数据和评价的连续性）
   const subject = body.type === 'student' ? cleanSubject(body.subject) : null;
+  // 写作板块的学生：必须选年级，并确认已获监护人同意（记录时间和操作人）
+  const isWriting = body.type === 'student' && subjects.directionOf({ type: 'student', subject }) === 'writing';
+  let grade = null, consentAt = null, consentBy = null;
+  if (isWriting) {
+    if (!grades.isValid(body.grade)) throw httpError(422, 'INVALID_GRADE', '请选择学生的年级（Pre-K 到 Grade 12）。');
+    if (body.consent !== true) throw httpError(422, 'CONSENT_REQUIRED', '创建写作学生账号前，请确认已获得监护人同意。');
+    grade = body.grade; consentAt = new Date().toISOString(); consentBy = ctx.account.username;
+  }
 
   const initialPassword = auth.generatePassword(12);
   const hash = await auth.hashPassword(initialPassword);
   let id;
   try {
-    id = db.prepare('INSERT INTO accounts (username, username_key, type, password_hash, must_change_password, timezone, subject, created_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?)')
-      .run(username, key, body.type, hash, timezone, subject, new Date().toISOString()).lastInsertRowid;
+    id = db.prepare('INSERT INTO accounts (username, username_key, type, password_hash, must_change_password, timezone, subject, grade, consent_at, consent_by, created_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)')
+      .run(username, key, body.type, hash, timezone, subject, grade, consentAt, consentBy, new Date().toISOString()).lastInsertRowid;
   } catch (e) {
     throw httpError(409, 'USERNAME_TAKEN', '这个账号名已经被使用。');
   }
-  audit(ctx.account.username, 'create_account', username, body.type + ' ' + timezone + (subject ? ' ' + subject : ''));
+  audit(ctx.account.username, 'create_account', username, body.type + ' ' + timezone + (subject ? ' ' + subject : '') + (grade ? ' grade=' + grade : '') + (consentAt ? ' consent' : ''));
   respondAccount(res, 201, Number(id), { initialPassword });
 }
 
@@ -135,6 +152,10 @@ async function updateAccount(req, res, ctx, idText) {
     if (target.subject && subjectValue !== target.subject) throw httpError(409, 'SUBJECT_LOCKED', '学习科目建立后不能修改。要学习其他科目，请新建一个学生账号。');
     if (target.subject) subjectValue = undefined; // 与原来相同，无需改动
   }
+  if (target.type === 'student' && 'grade' in body) {
+    if (subjects.directionOf(target) !== 'writing') throw httpError(422, 'NOT_WRITING_STUDENT', '只有写作板块的学生才有年级。');
+    if (!grades.isValid(body.grade)) throw httpError(422, 'INVALID_GRADE', '请选择有效的年级（Pre-K 到 Grade 12）。');
+  }
   const studentIds = target.type === 'supervisor' && 'studentIds' in body ? cleanIds(body.studentIds, 'student') : null;
   const supervisorIds = target.type === 'support' && 'supervisorIds' in body ? cleanIds(body.supervisorIds, 'supervisor') : null;
 
@@ -155,6 +176,13 @@ async function updateAccount(req, res, ctx, idText) {
       audit(ctx.account.username, 'update_timezone', target.username, target.timezone + ' → ' + body.timezone);
     }
     if (Object.keys(body).length === 1) return respondAccount(res, 200, target.id);
+  }
+  if (target.type === 'student' && 'grade' in body) {
+    if (body.grade !== target.grade) {
+      db.prepare('UPDATE accounts SET grade = ? WHERE id = ?').run(body.grade, target.id);
+      audit(ctx.account.username, 'update_grade', target.username, (target.grade || '(空)') + ' → ' + body.grade);
+    }
+    if (Object.keys(body).every((k) => ['grade', 'timezone'].includes(k))) return respondAccount(res, 200, target.id);
   }
   if (subjectValue !== undefined) {
     db.prepare('UPDATE accounts SET subject = ? WHERE id = ?').run(subjectValue, target.id);

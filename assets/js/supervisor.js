@@ -206,6 +206,7 @@
       b.setAttribute("aria-current", s.id === state.currentId ? "true" : "false");
       b.appendChild(el("span", "name", s.username));
       b.appendChild(el("span", "sub", (s.subject ? s.subject : "未设置学习科目") + "　·　" + (s.direction === "writing" ? "写作" : "AP 自学")));
+      if (s.direction === "writing" && s.promptsLeft !== null && s.promptsLeft < s.lowPrompts) b.appendChild(el("span", "badge warn", "题目不足（剩 " + s.promptsLeft + "）"));
       b.appendChild(el("span", "sub", "时区：" + s.tzLabel.zh));
       b.addEventListener("click", function () { selectStudent(s.id); });
       li.appendChild(b);
@@ -227,16 +228,134 @@
     // 写作板块的学生：这里还没有对应的内容（Writing 板块开发中），不显示 AP 测试管理
     var isWriting = !!s && s.direction === "writing";
     $("new-btn").hidden = isWriting;
+    $("writing-area").hidden = !isWriting;
     if (isWriting) {
-      var host = $("lists");
-      clear(host);
+      clear($("lists"));
       state.assessments = [];
       setStatus("");
-      host.appendChild(el("p", "muted writing-note", "这位学生属于写作板块（Writing），写作的日程和题目库功能即将开放。"));
-      return Promise.resolve();
+      return loadWriting(s.id);
     }
     return loadAssessments();
   }
+
+  /* ---------- 写作板块：日程和题目库 ---------- */
+  var DAY_NAMES = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+  var wstate = { data: null, id: null };
+  var dayBoxes = [];
+
+  function drawDays(mask) {
+    var host = $("w-days");
+    clear(host);
+    dayBoxes = DAY_NAMES.map(function (name, i) {
+      var l = el("label", "day-opt");
+      var c = el("input");
+      c.type = "checkbox";
+      c.checked = (mask & (1 << i)) !== 0;
+      c.setAttribute("aria-label", name);
+      l.appendChild(c);
+      l.appendChild(el("span", "", name));
+      host.appendChild(l);
+      return c;
+    });
+  }
+  function daysMask() { return dayBoxes.reduce(function (m, c, i) { return c.checked ? m | (1 << i) : m; }, 0); }
+  function loadWriting(id) {
+    wstate.id = id;
+    return api("GET", "/api/supervisor/writing/students/" + id).then(function (data) {
+      if (id !== state.currentId) return;
+      wstate.data = data;
+      renderWriting();
+    }).catch(function (e) { setStatus(e.message, true); });
+  }
+  function renderWriting() {
+    var d = wstate.data;
+    var sch = d.schedule;
+    $("w-sched-hint").textContent = (d.student.gradeLabel ? "年级：" + d.student.gradeLabel.zh + "　·　" : "") + "学生所在时区：" + d.student.tzLabel.zh + (sch.configured ? "" : "　·　还没有设置写作日程，请先设置每天的时间。");
+    $("w-time").value = sch.time || "";
+    drawDays(sch.days);
+    $("w-paused").checked = sch.paused;
+    showMsg("w-sched-msg", "");
+    renderPrompts();
+  }
+  function renderPrompts() {
+    var d = wstate.data;
+    var rem = $("w-remaining");
+    rem.textContent = "剩余 " + d.remaining + " 个还没写过的题目" + (d.low ? "　·　少于 " + d.lowThreshold + " 个，请追加题目" : "");
+    rem.className = "remaining" + (d.low ? " low" : "");
+    var ul = $("w-prompts");
+    clear(ul);
+    if (!d.prompts.length) ul.appendChild(el("li", "muted", "题目库还是空的，请在下面添加题目。"));
+    d.prompts.forEach(function (p) {
+      var li = el("li", "prompt-item" + (p.used ? " used" : ""));
+      var t = el("div", "p-text", p.title);
+      if (p.hint) t.appendChild(el("span", "p-hint", "提示：" + p.hint));
+      li.appendChild(t);
+      if (p.used) li.appendChild(el("span", "badge", "已写过"));
+      else {
+        var ed = el("button", "btn", "修改");
+        ed.type = "button";
+        ed.setAttribute("aria-label", "修改题目：" + p.title);
+        ed.addEventListener("click", function () { editPrompt(p); });
+        var rm = el("button", "btn danger", "删除");
+        rm.type = "button";
+        rm.setAttribute("aria-label", "删除题目：" + p.title);
+        rm.addEventListener("click", function () {
+          confirmDialog("删除题目“" + p.title + "”？", "删除", function () {
+            api("DELETE", "/api/supervisor/writing/prompts/" + p.id).then(function (data) { wstate.data = data; renderPrompts(); refreshStudentFlags(data); })
+              .catch(function (e) { showMsg("w-prompt-msg", e.message); });
+          });
+        });
+        li.appendChild(ed);
+        li.appendChild(rm);
+      }
+      ul.appendChild(li);
+    });
+  }
+  function editPrompt(p) {
+    $("w-prompt-title").value = p.title;
+    $("w-prompt-hint").value = p.hint;
+    wstate.editing = p.id;
+    $("w-prompt-add").textContent = "保存修改";
+    $("w-prompt-title").focus();
+  }
+  function refreshStudentFlags(data) {
+    var s = currentStudent();
+    if (s) { s.promptsLeft = data.remaining; renderStudents(); }
+  }
+  $("w-sched-form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    showMsg("w-sched-msg", "");
+    var time = $("w-time").value;
+    if (!time) return showMsg("w-sched-msg", "请选择每天写作的时间。");
+    var mask = daysMask();
+    if (!mask) return showMsg("w-sched-msg", "请至少选择一周中的一天。");
+    api("PUT", "/api/supervisor/writing/students/" + wstate.id + "/schedule", { time: time, days: mask, paused: $("w-paused").checked }).then(function (data) {
+      wstate.data = data;
+      renderWriting();
+      showMsg("w-sched-msg", "日程已保存。");
+    }).catch(function (err) { showMsg("w-sched-msg", err.message); });
+  });
+  $("w-days-all").addEventListener("click", function () { dayBoxes.forEach(function (c) { c.checked = true; }); });
+  $("w-days-weekdays").addEventListener("click", function () { dayBoxes.forEach(function (c, i) { c.checked = i < 5; }); });
+  $("w-prompt-form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    showMsg("w-prompt-msg", "");
+    var title = $("w-prompt-title").value.trim();
+    if (!title) return showMsg("w-prompt-msg", "请填写题目。");
+    var body = { title: title, hint: $("w-prompt-hint").value.trim() };
+    var editing = wstate.editing;
+    var req = editing ? api("PATCH", "/api/supervisor/writing/prompts/" + editing, body) : api("POST", "/api/supervisor/writing/students/" + wstate.id + "/prompts", body);
+    req.then(function (data) {
+      wstate.data = data;
+      wstate.editing = null;
+      $("w-prompt-title").value = "";
+      $("w-prompt-hint").value = "";
+      $("w-prompt-add").textContent = "添加题目";
+      renderPrompts();
+      refreshStudentFlags(data);
+      showMsg("w-prompt-msg", editing ? "已保存修改。" : "已添加题目。");
+    }).catch(function (err) { showMsg("w-prompt-msg", err.message); });
+  });
 
   /* ---------- 测试列表 ---------- */
   function loadAssessments() {

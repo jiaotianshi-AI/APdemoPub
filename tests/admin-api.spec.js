@@ -251,3 +251,39 @@ test("管理操作写入审计日志，日志里没有密码", async ({ request 
   expect(rows.map((r) => r.action)).toEqual(["create_account", "disable_account"]);
   expect(JSON.stringify(rows)).not.toContain(initialPassword);
 });
+
+test("写作学生：创建时必须选年级（Pre-K 到 Grade 12）并确认监护人同意；年级可修改；AP 学生没有年级", async ({ request }) => {
+  const mk = (data) => request.post("/api/admin/accounts", { headers: H, data: { username: uid("wst"), type: "student", subject: "Writing", ...data } });
+  const list = (await (await request.get("/api/admin/accounts")).json()).grades;
+  expect(list.map((g) => g.code)).toEqual(["PK", "K", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"]);
+  for (const grade of [undefined, "", "13", "0", "College", 4, null, "pk"]) {
+    const r = await mk({ grade, consent: true });
+    expect([r.status(), (await r.json()).error], String(grade)).toEqual([422, "INVALID_GRADE"]);
+  }
+  for (const consent of [undefined, false, "true", 1, null]) {
+    const r = await mk({ grade: "4", consent });
+    expect([r.status(), (await r.json()).error], String(consent)).toEqual([422, "CONSENT_REQUIRED"]);
+  }
+  const ok = await mk({ grade: "PK", consent: true });
+  expect(ok.status()).toBe(201);
+  const acc = (await ok.json()).account;
+  expect([acc.direction, acc.grade, acc.gradeLabel.en, acc.consentBy]).toEqual(["writing", "PK", "Pre-K", "e2e_admin"]);
+  expect(new Date(acc.consentAt).getTime()).toBeGreaterThan(Date.now() - 60000);
+  // 修改年级（升年级）
+  let r = await patch(request, acc.id, { grade: "K" });
+  expect((await r.json()).account.gradeLabel.en).toBe("Kindergarten");
+  r = await patch(request, acc.id, { grade: "12", timezone: "Asia/Tokyo" });
+  const u = (await r.json()).account;
+  expect([u.grade, u.timezone]).toEqual(["12", "Asia/Tokyo"]);
+  for (const grade of ["13", "", null, 4]) expect((await patch(request, acc.id, { grade })).status(), String(grade)).toBe(422);
+  // 审计日志记录年级变化和同意，不含别的内容
+  const { db } = require("../server/db");
+  const log = db.prepare("SELECT action, detail FROM audit_log WHERE target_name = ? ORDER BY id").all(acc.username).map((x) => x.action + ":" + x.detail).join("|");
+  expect(log).toContain("create_account:student America/Vancouver Writing grade=PK consent");
+  expect(log).toContain("update_grade:PK → K");
+  // AP 学生不能有年级，也不记录同意
+  const ap = await request.post("/api/admin/accounts", { headers: H, data: { username: uid("apst"), type: "student", subject: "AP Biology", grade: "4", consent: true } });
+  const apAcc = (await ap.json()).account;
+  expect([ap.status(), apAcc.grade, apAcc.consentAt]).toEqual([201, undefined, undefined]);
+  expect((await patch(request, apAcc.id, { grade: "4" })).status()).toBe(422);
+});

@@ -748,3 +748,113 @@ test("答题与评分：每题分成 6 个模块（问题、学生文字答案�
   await expect(row.locator(".ai-status")).toHaveText("需要补充：学生答案（文字答案或 PDF 答案）、评分标准 PDF。");
   await expect(page.locator("#confirm-dialog")).not.toBeVisible();
 });
+
+// ---- 写作板块：日程和题目库 ----
+async function writingPage(page, playwright, baseURL, opts = {}) {
+  const { PASSWORD } = require("./helpers");
+  const sup = await makeUser("supervisor", "wsui");
+  const stu = await makeUser("student", "wsuis", "Writing");
+  linkSupervisor(sup.id, stu.id);
+  await page.request.post("/api/login", { headers: H, data: { username: sup.username, password: PASSWORD } });
+  await page.goto("/supervisor");
+  await page.locator(".student-btn", { hasText: stu.username }).click();
+  await expect(page.locator("#writing-area")).toBeVisible();
+  return { sup, stu };
+}
+
+test("写作学生：设定日程（时间、重复、暂停）并保存；刷新后保持", async ({ page, playwright, baseURL }) => {
+  const { stu } = await writingPage(page, playwright, baseURL);
+  await expect(page.locator("#w-sched-hint")).toContainText("还没有设置写作日程");
+  await expect(page.locator("#new-btn")).toBeHidden();
+  // 没填时间
+  await page.click("#w-sched-save");
+  await expect(page.locator("#w-sched-msg")).toContainText("请选择每天写作的时间");
+  await page.fill("#w-time", "16:30");
+  await page.click("#w-days-weekdays");
+  await page.click("#w-sched-save");
+  await expect(page.locator("#w-sched-msg")).toHaveText("日程已保存。");
+  // 一天都不选
+  for (const d of ["周一", "周二", "周三", "周四", "周五"]) await page.getByRole("checkbox", { name: d, exact: true }).uncheck();
+  await page.click("#w-sched-save");
+  await expect(page.locator("#w-sched-msg")).toContainText("请至少选择一周中的一天");
+  await page.click("#w-days-all");
+  await page.check("#w-paused");
+  await page.click("#w-sched-save");
+  await expect(page.locator("#w-sched-msg")).toHaveText("日程已保存。");
+  await page.reload();
+  await page.locator(".student-btn", { hasText: stu.username }).click();
+  await expect(page.locator("#w-time")).toHaveValue("16:30");
+  await expect(page.locator("#w-paused")).toBeChecked();
+  await expect(page.locator("#w-days input:checked")).toHaveCount(7);
+  await page.click("#w-days-weekdays");
+  await expect(page.locator("#w-days input:checked")).toHaveCount(5);
+});
+
+test("写作学生：题目库添加/修改/删除，剩余少于 3 个时提醒，学生列表显示“题目不足”", async ({ page, playwright, baseURL }) => {
+  const { stu } = await writingPage(page, playwright, baseURL);
+  const rem = page.locator("#w-remaining");
+  await expect(rem).toContainText("剩余 0 个");
+  await expect(rem).toHaveClass(/low/);
+  await expect(page.locator(".student-btn", { hasText: stu.username })).toContainText("题目不足（剩 0）");
+  const add = async (title, hint) => {
+    await page.fill("#w-prompt-title", title);
+    await page.fill("#w-prompt-hint", hint || "");
+    await page.click("#w-prompt-add");
+  };
+  await page.click("#w-prompt-add");
+  await expect(page.locator("#w-prompt-msg")).toContainText("请填写题目");
+  await add("My best day", "Who, where, why?");
+  await expect(page.locator("#w-prompt-msg")).toHaveText("已添加题目。");
+  await add("A trip I remember");
+  await expect(rem).toContainText("少于 3 个，请追加题目");
+  await add("My pet");
+  await expect(rem).toHaveText("剩余 3 个还没写过的题目");
+  await expect(rem).not.toHaveClass(/low/);
+  await expect(page.locator(".student-btn", { hasText: stu.username })).not.toContainText("题目不足");
+  await expect(page.locator("#w-prompts li")).toHaveCount(3);
+  await expect(page.locator("#w-prompts li").first()).toContainText("提示：Who, where, why?");
+  // 重复
+  await add("my pet");
+  await expect(page.locator("#w-prompt-msg")).toContainText("已经有这个题目");
+  // 修改
+  await page.getByRole("button", { name: "修改题目：My pet" }).click();
+  await expect(page.locator("#w-prompt-title")).toHaveValue("My pet");
+  await expect(page.locator("#w-prompt-add")).toHaveText("保存修改");
+  await page.fill("#w-prompt-title", "My favorite pet");
+  await page.click("#w-prompt-add");
+  await expect(page.locator("#w-prompts")).toContainText("My favorite pet");
+  await expect(page.locator("#w-prompt-add")).toHaveText("添加题目");
+  // 删除（有确认）
+  await page.getByRole("button", { name: "删除题目：My favorite pet" }).click();
+  await expect(page.locator("#confirm-message")).toContainText("My favorite pet");
+  await page.locator("#confirm-ok").click();
+  await expect(page.locator("#w-prompts li")).toHaveCount(2);
+  await expect(rem).toContainText("少于 3 个");
+  await expect(page.locator(".student-btn", { hasText: stu.username })).toContainText("题目不足（剩 2）");
+});
+
+test("写作学生页：无障碍（axe）和触控目标；切换到 AP 学生后写作区消失", async ({ page, playwright, baseURL }) => {
+  const { sup, stu } = await writingPage(page, playwright, baseURL);
+  const ap = await makeUser("student", "wsuiap", "AP Biology");
+  linkSupervisor(sup.id, ap.id);
+  await page.reload();
+  await page.locator(".student-btn", { hasText: stu.username }).click();
+  await page.fill("#w-time", "16:30");
+  await page.click("#w-days-weekdays");
+  await page.fill("#w-prompt-title", "My best day");
+  await page.fill("#w-prompt-hint", "Who, where, why?");
+  await page.click("#w-prompt-add");
+  await expect(page.locator("#w-prompts li")).toHaveCount(1);
+  if (test.info().project.name === "chromium") {
+    const dir = require("path").join(__dirname, "screenshots", "writing");
+    require("fs").mkdirSync(dir, { recursive: true });
+    await page.screenshot({ path: require("path").join(dir, "supervisor-writing.png"), fullPage: true });
+  }
+  const res = await new AxeBuilder({ page }).analyze();
+  expect(res.violations.filter((v) => ["serious", "critical"].includes(v.impact)).map((v) => v.id + ": " + v.nodes.map((n) => n.target.join(" ")).join("|"))).toEqual([]);
+  const small = await page.locator("#writing-area button, #writing-area input[type=time], #writing-area .day-opt span").evaluateAll((els) => els.filter((e) => e.offsetParent && (e.getBoundingClientRect().height < 43.5 || e.getBoundingClientRect().width < 43.5)).map((e) => e.tagName + ":" + (e.textContent || e.id)));
+  expect(small).toEqual([]);
+  await page.locator(".student-btn", { hasText: ap.username }).click();
+  await expect(page.locator("#writing-area")).toBeHidden();
+  await expect(page.locator("#new-btn")).toBeVisible();
+});

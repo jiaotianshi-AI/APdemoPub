@@ -11,6 +11,7 @@ const scoring = require('./scoring');
 const settings = require('./settings');
 const ai = require('./ai');
 const subjects = require('./subjects');
+const writing = require('./routes-supervisor-writing');
 
 const TEXT_MAX = 64;
 const DURATION_MIN = 5;
@@ -136,7 +137,7 @@ function setFiles(assessmentId, role, ids) {
 function listStudents(res, ctx) {
   const rows = db.prepare(`SELECT a.id, a.username, a.subject, a.disabled, a.timezone FROM supervisor_students s
     JOIN accounts a ON a.id = s.student_id WHERE s.supervisor_id = ? ORDER BY a.username`).all(ctx.account.id);
-  sendJson(res, 200, { students: rows.map((r) => ({ id: r.id, username: r.username, subject: r.subject || '', direction: subjects.directionOf({ type: 'student', subject: r.subject }), disabled: !!r.disabled, timezone: r.timezone, tzLabel: tzs.label(r.timezone) })) });
+  sendJson(res, 200, { students: rows.map((r) => ({ id: r.id, username: r.username, subject: r.subject || '', direction: subjects.directionOf({ type: 'student', subject: r.subject }), promptsLeft: subjects.directionOf({ type: 'student', subject: r.subject }) === 'writing' ? writing.promptsLeft(r.id) : null, lowPrompts: writing.LOW_PROMPTS, disabled: !!r.disabled, timezone: r.timezone, tzLabel: tzs.label(r.timezone) })) });
 }
 
 function listAssessments(res, ctx, studentId) {
@@ -465,6 +466,7 @@ function downloadFile(req, res, ctx, idText) {
 module.exports = async function supervisorApi(req, res, pathname, ctx) {
   const m = (re) => re.exec(pathname);
   let r;
+  if (pathname.startsWith('/api/supervisor/writing/')) return writing.handle(req, res, pathname, ctx);
   if (pathname === '/api/supervisor/students' && req.method === 'GET') return listStudents(res, ctx);
   if ((r = m(/^\/api\/supervisor\/students\/([^/]+)\/assessments$/)) && req.method === 'GET') return listAssessments(res, ctx, r[1]);
   if (pathname === '/api/supervisor/assessments' && req.method === 'POST') return createAssessments(req, res, ctx);

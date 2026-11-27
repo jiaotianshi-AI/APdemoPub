@@ -107,6 +107,15 @@
         <select id="new-subject"></select>
         <span class="hint">学习科目创建后不能修改（保证学习数据和评价的连续性）。同一个学生要学习多个科目，请分别建立账号。科目决定学生登录后进入的板块（AP 自学或写作）。</span>
       </div>
+      <div class="field" id="new-grade-field" hidden>
+        <label for="new-grade">年级</label>
+        <select id="new-grade"></select>
+        <span class="hint">写作板块的学生需要年级（Pre-K 到 Grade 12），AI 会按年级判断写作水平。只记录年级，不记录生日和学校。年级以后可以修改（例如升年级）。</span>
+      </div>
+      <div class="field consent" id="new-consent-field" hidden>
+        <label><input id="new-consent" type="checkbox"> 已获得监护人同意</label>
+        <span class="hint">写作板块会把孩子写的作文和 AI 对话发送给 AI 服务商处理。创建账号前请确认已告知并取得监护人同意；系统会记录确认的时间和操作人。</span>
+      </div>
       <div class="field">
         <label for="new-tz">所在时区</label>
         <select id="new-tz"></select>

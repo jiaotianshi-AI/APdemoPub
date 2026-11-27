@@ -149,3 +149,11 @@
 - **品牌**：主品牌暂用 “Focus”（未最终定稿，在 `config.js`），副标题 “Focus. Steps. Progress.”，登录页、后台、学生页、测试页、浏览器标签页都已更新；学生页中英文副标题相同（没有翻译）。
 - **保守决定**：① 路径统一不带结尾斜杠（`/apdemo/` 会跳到 `/apdemo`）；② Caddy 配置不由 update.sh 自动更换（需先配好 `focus` 的 DNS，否则新域名拿不到证书），步骤见 `deploy/DEPLOY.md`；③ 初始科目只预置 `AP Biology` 和 `Writing`，其他 AP 科目请管理员在“科目管理”里添加；④ 英文副标题在中文界面也用英文。
 - 测试：全部 420 项通过、28 项跳过（AI 用例在 WebKit 下按设计跳过）；新增板块分流、科目锁定、科目管理、品牌的测试。
+
+## 15. Writing 板块 阶段 1（基础）
+- **账号**：写作学生（科目属于 writing 板块）创建时必须选年级（Pre-K、Kindergarten、Grade 1–12，不含大学）并勾选“已获得监护人同意”，系统记录勾选时间和操作人；年级可在编辑里修改（升年级），同意记录只读；AP 学生不设年级。审计日志记录年级变化。
+- **督导者**：写作学生在 `/supervisor` 里显示“写作日程”和“题目库”（AP 学生仍是测试管理）。日程：每天时间（学生当地时间）、周一到周日的重复位图、暂停；起始日按学生时区记录。题目库：每个孩子一份；标题 ≤ 120 字符、提示语 ≤ 300 字符、每个孩子最多 500 个；同一孩子下不分大小写不能重复；已被孩子写过的题目保留历史、不能改删；剩余少于 3 个时高亮提醒，学生列表上显示“题目不足（剩 N）”。
+- **接口**：`/api/supervisor/writing/students/:id`（GET）、`.../schedule`（PUT）、`.../prompts`（POST）、`/api/supervisor/writing/prompts/:id`（PATCH/DELETE）。只能操作自己关联的写作学生；AP 学生返回 422，别人的学生返回 404。
+- **数据库版本 8**：accounts 新增 grade、consent_at、consent_by；新增 writing_schedules、writing_prompts、writing_sessions、writing_turns、writing_grades、writing_flags（后续阶段使用，现在只有日程和题目库在用）。
+- **保守决定**：① 年级只存代码；② 已用题目不可改删；③ 设置了“暂停”时只记录，不影响其他功能（孩子的写作页在阶段 2 做）；④ 日程的“起始日”只在第一次保存时记录。
+- 测试：全部 440 项通过、28 项跳过（AI 用例在 WebKit 下按设计跳过）。

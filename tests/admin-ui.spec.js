@@ -12,6 +12,7 @@ async function createViaUi(page, name, type, subject = "AP Biology") {
   await page.fill("#new-username", name);
   await page.selectOption("#new-type", type);
   if (type === "student") await page.selectOption("#new-subject", subject);
+  if (subject === "Writing") { await page.selectOption("#new-grade", "4"); await page.check("#new-consent"); }
   await page.click("#create-submit");
   await expect(page.locator("#secret-dialog")).toBeVisible();
   const password = await page.locator("#secret-password").textContent();
@@ -295,4 +296,50 @@ test("截图归档：后台列表、新建、编辑对话框（供人工审阅�
   await page.keyboard.press("Escape");
   await row(page, sup.username).getByRole("button", { name: "编辑 " + sup.username }).click();
   await page.screenshot({ path: path.join(dir, "admin-edit.png") });
+});
+
+test("新建写作学生：选 Writing 科目后出现年级和监护人同意；缺一不可；列表显示年级；编辑里可改年级", async ({ page }) => {
+  await open(page);
+  const name = uid("wui");
+  await page.click("#new-btn");
+  await page.fill("#new-username", name);
+  await page.selectOption("#new-type", "student");
+  // AP 科目：没有年级和同意
+  await expect(page.locator("#new-grade-field")).toBeHidden();
+  await page.selectOption("#new-subject", "AP Biology");
+  await expect(page.locator("#new-consent-field")).toBeHidden();
+  // Writing 科目：出现年级和同意
+  await page.selectOption("#new-subject", "Writing");
+  await expect(page.locator("#new-grade-field")).toBeVisible();
+  await expect(page.locator("#new-consent-field")).toBeVisible();
+  await expect(page.locator("#new-grade option")).toHaveCount(15); // “请选择”+ Pre-K、Kindergarten、Grade 1–12
+  await expect(page.locator("#new-grade option").nth(1)).toHaveText("Pre-K（学前）");
+  await expect(page.locator("#new-grade option").last()).toHaveText("Grade 12");
+  await page.click("#create-submit");
+  await expect(page.locator("#create-error")).toContainText("请选择学生的年级");
+  await page.selectOption("#new-grade", "5");
+  await page.click("#create-submit");
+  await expect(page.locator("#create-error")).toContainText("监护人同意");
+  await page.check("#new-consent");
+  await page.click("#create-submit");
+  await expect(page.locator("#secret-dialog")).toBeVisible();
+  await page.click("#secret-dialog [data-close]");
+  await page.fill("#search", name);
+  const r = row(page, name);
+  await expect(r).toContainText("学习科目：Writing（写作）");
+  await expect(r).toContainText("年级：Grade 5");
+  // 编辑：年级可以改，监护人同意只读
+  await r.getByRole("button", { name: "编辑 " + name }).click();
+  await expect(page.locator("#edit-grade")).toHaveValue("5");
+  await expect(page.locator("#edit-dialog")).toContainText("监护人同意：已确认");
+  await page.selectOption("#edit-grade", "6");
+  await page.click("#edit-submit");
+  await expect(page.locator("#edit-dialog")).toBeHidden();
+  await expect(r).toContainText("年级：Grade 6");
+  // AP 学生的编辑里没有年级
+  const ap = uid("apu");
+  await createViaUi(page, ap, "student");
+  await page.fill("#search", ap);
+  await row(page, ap).getByRole("button", { name: "编辑 " + ap }).click();
+  await expect(page.locator("#edit-grade")).toHaveCount(0);
 });

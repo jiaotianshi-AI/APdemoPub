@@ -37,6 +37,51 @@
       </div>
       <p id="status" class="status" role="status"></p>
       <div id="lists"></div>
+
+      <!-- 写作板块的学生：写作日程和题目库 -->
+      <div id="writing-area" hidden>
+        <section class="panel-block" aria-labelledby="w-sched-title">
+          <h2 id="w-sched-title">写作日程</h2>
+          <p class="hint" id="w-sched-hint"></p>
+          <form id="w-sched-form" novalidate>
+            <div class="field">
+              <label for="w-time">每天写作的时间</label>
+              <input id="w-time" type="time" required>
+              <span class="hint">按学生所在时区的当地时间。到点后当天任何时间都能写，不限时；每天只能完成一篇。</span>
+            </div>
+            <fieldset class="w-days">
+              <legend>重复</legend>
+              <div id="w-days" class="day-row"></div>
+              <div class="day-quick">
+                <button type="button" class="btn" id="w-days-all">每天</button>
+                <button type="button" class="btn" id="w-days-weekdays">仅工作日</button>
+              </div>
+            </fieldset>
+            <div class="field consent"><label><input id="w-paused" type="checkbox"> 暂停写作日程</label></div>
+            <p id="w-sched-msg" class="msg" role="status" hidden></p>
+            <button type="submit" class="btn primary" id="w-sched-save">保存日程</button>
+          </form>
+        </section>
+
+        <section class="panel-block" aria-labelledby="w-prompts-title">
+          <h2 id="w-prompts-title">题目库</h2>
+          <p class="hint">每个孩子一份。系统每天把还没写过的题目全部列给孩子，孩子自选一个；写一个少一个。剩余少于 3 个时请追加。</p>
+          <p id="w-remaining" class="remaining" role="status"></p>
+          <ul id="w-prompts" class="prompt-list"></ul>
+          <form id="w-prompt-form" class="prompt-form" novalidate>
+            <div class="field">
+              <label for="w-prompt-title">新题目</label>
+              <input id="w-prompt-title" type="text" maxlength="120" autocomplete="off">
+            </div>
+            <div class="field">
+              <label for="w-prompt-hint">提示语（可选）</label>
+              <input id="w-prompt-hint" type="text" maxlength="300" autocomplete="off">
+            </div>
+            <button type="submit" class="btn primary" id="w-prompt-add">添加题目</button>
+          </form>
+          <p id="w-prompt-msg" class="msg" role="status" hidden></p>
+        </section>
+      </div>
     </section>
   </main>
 
