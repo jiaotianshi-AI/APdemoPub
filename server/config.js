@@ -25,6 +25,7 @@ module.exports = {
   aiAllowPrivateBase: process.env.AI_ALLOW_PRIVATE_BASE === '1', // 允许自定义服务商地址指向本机/内网（只在测试里打开）
   aiTimeoutMs: Number(process.env.AI_TIMEOUT_MS || 180000),
   aiTestMinIntervalMs: Number(process.env.AI_TEST_MIN_INTERVAL_MS || 2000), // 管理员连通性测试的最小间隔
+  writingMinIntervalMs: Number(process.env.WRITING_MIN_INTERVAL_MS || 4000), // 写作“请提建议”的最小间隔
   aiMaxPerHour: Number(process.env.AI_MAX_PER_HOUR || 60), // 每个督导者每小时最多提交的 AI 评分次数
   cookieSecure: process.env.COOKIE_SECURE !== '0', // 正式环境为 HTTPS；仅本地测试时设为 0
   cookieName: 'apdemo_sid',

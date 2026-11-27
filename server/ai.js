@@ -293,4 +293,47 @@ async function gradeOpenAi(r, cfg, input, bufs) {
   return res;
 }
 
-module.exports = { AiError, PROVIDERS, GRADE_SCHEMA, validateBaseUrl, resolve, test, grade, extractPdfText };
+/* ---------- 通用：发一段文字，要求返回一个 JSON 对象（写作板块用） ---------- */
+function extractJson(text) {
+  let t = String(text || '').trim();
+  const fence = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(t);
+  if (fence) t = fence[1];
+  try { const o = JSON.parse(t); if (o && typeof o === 'object') return o; } catch (e) { /* 再试 */ }
+  const m = /\{[\s\S]*\}/.exec(t);
+  if (m) { try { const o = JSON.parse(m[0]); if (o && typeof o === 'object') return o; } catch (e) { /* 放弃 */ } }
+  throw new AiError('AI_BAD_RESPONSE', 'AI 的回答格式不对，无法读出结果。请重试。');
+}
+// cfg: { provider, model, apiKey, baseUrl?, pdfNative? }；返回 { json, model, inputTokens, outputTokens }
+async function askJson(cfg, { system, user, schema, maxTokens }) {
+  const r = resolve(cfg);
+  const textMode = system + '\n\nReply with ONLY one JSON object (no other text) that matches this JSON schema:\n' + JSON.stringify(schema);
+  const limit = maxTokens || 6000;
+  let text, model, usage;
+  if (r.p.kind === 'anthropic') {
+    const base = { model: cfg.model, max_tokens: limit, system, messages: [{ role: 'user', content: user }] };
+    let data;
+    try { data = await anthropicCall(r, cfg.apiKey, Object.assign({ output_config: { format: { type: 'json_schema', schema } } }, base)); } catch (e) {
+      if (e && e.httpStatus === 400 && /output_config|structured|json_schema|format/i.test(e.apiMessage || '')) data = await anthropicCall(r, cfg.apiKey, Object.assign({}, base, { system: textMode }));
+      else throw e;
+    }
+    if (data.stop_reason === 'refusal') throw new AiError('AI_REFUSED', 'AI 拒绝处理这次内容。请稍后重试。');
+    if (data.stop_reason === 'max_tokens') throw new AiError('AI_TRUNCATED', 'AI 的回答被截断了。请重试。');
+    text = anthropicText(data); model = data.model; usage = { i: data.usage && data.usage.input_tokens, o: data.usage && data.usage.output_tokens };
+  } else {
+    const wantSchema = r.p.json === 'schema';
+    const msgs = (sys) => [{ role: 'system', content: sys }, { role: 'user', content: user }];
+    const base = Object.assign({ model: cfg.model, messages: msgs(wantSchema ? system : textMode) }, tokenLimit(r.p, limit));
+    let data;
+    try { data = await openaiCall(r, cfg.apiKey, wantSchema ? Object.assign({ response_format: { type: 'json_schema', json_schema: { name: 'result', strict: true, schema } } }, base) : base); } catch (e) {
+      if (wantSchema && e && e.httpStatus === 400 && /response_format|json_schema|structured/i.test(e.apiMessage || '')) data = await openaiCall(r, cfg.apiKey, Object.assign({}, base, { messages: msgs(textMode) }));
+      else throw e;
+    }
+    const ch = data.choices[0];
+    if ((ch.message && ch.message.refusal) || ch.finish_reason === 'content_filter') throw new AiError('AI_REFUSED', 'AI 拒绝处理这次内容。请稍后重试。');
+    if (ch.finish_reason === 'length') throw new AiError('AI_TRUNCATED', 'AI 的回答被截断了。请重试。');
+    text = openaiText(data); model = data.model; usage = { i: data.usage && data.usage.prompt_tokens, o: data.usage && data.usage.completion_tokens };
+  }
+  return { json: extractJson(text), model: model || cfg.model, provider: r.p.id, inputTokens: usage.i, outputTokens: usage.o };
+}
+
+module.exports = { askJson, AiError, PROVIDERS, GRADE_SCHEMA, validateBaseUrl, resolve, test, grade, extractPdfText };

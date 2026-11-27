@@ -55,7 +55,7 @@ module.exports = defineConfig({
       timeout: 20000,
       env: {
         ...process.env, PORT: String(PORT), HOST: "127.0.0.1", APDEMO_DB: DB, COOKIE_SECURE: "0",
-        AI_API_BASE: `http://127.0.0.1:${MOCK_AI_PORT}`, AI_API_BASE_OPENAI: `http://127.0.0.1:${MOCK_AI_PORT}/openai/v1`, AI_API_BASE_DEEPSEEK: `http://127.0.0.1:${MOCK_AI_PORT}/deepseek`, AI_ALLOW_PRIVATE_BASE: "1", AI_MAX_PER_HOUR: "12", AI_TEST_MIN_INTERVAL_MS: "0"
+        AI_API_BASE: `http://127.0.0.1:${MOCK_AI_PORT}`, AI_API_BASE_OPENAI: `http://127.0.0.1:${MOCK_AI_PORT}/openai/v1`, AI_API_BASE_DEEPSEEK: `http://127.0.0.1:${MOCK_AI_PORT}/deepseek`, AI_ALLOW_PRIVATE_BASE: "1", WRITING_MIN_INTERVAL_MS: "0", AI_MAX_PER_HOUR: "12", AI_TEST_MIN_INTERVAL_MS: "0"
       }
     }
   ]

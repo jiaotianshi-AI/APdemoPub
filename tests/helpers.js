@@ -57,4 +57,14 @@ async function gradeAll(ctx, assessment, scores, extra) {
   const questions = assessment.questionFiles.map((q, i) => ({ questionFileId: q.id, score: scores[i], ...(extra && extra[i] ? extra[i] : {}) }));
   return ctx.patch(`/api/supervisor/assessments/${assessment.id}`, { headers: H, data: { questions } });
 }
-module.exports = Object.assign(module.exports, { makeUser, linkSupervisor, loginCtx, pdf, textPdf, uploadPdf, gradeAll });
+// 写作学生：科目 Writing、年级、每天 00:00 起可写（任何时候都可写）、若干题目。只用于测试。
+async function makeWritingStudent({ prompts = ["My best day", "My pet", "A trip I remember"], time = "00:00", days = 127, grade = "4", startDate = "2000-01-01", schedule = true } = {}) {
+  const { db } = require("../server/db");
+  const u = await makeUser("student", "wr", "Writing");
+  db.prepare("UPDATE accounts SET grade = ? WHERE id = ?").run(grade, u.id);
+  if (schedule) db.prepare("INSERT INTO writing_schedules (student_id, time_of_day, days, paused, start_date, updated_at) VALUES (?, ?, ?, 0, ?, ?)").run(u.id, time, days, startDate, new Date().toISOString());
+  const ins = db.prepare("INSERT INTO writing_prompts (student_id, title, hint, created_at) VALUES (?, ?, ?, ?)");
+  prompts.forEach((t, i) => ins.run(u.id, t, i === 0 ? "Who, where, why?" : null, new Date().toISOString()));
+  return u;
+}
+module.exports = Object.assign(module.exports, { makeWritingStudent, makeUser, linkSupervisor, loginCtx, pdf, textPdf, uploadPdf, gradeAll });

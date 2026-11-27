@@ -10,6 +10,7 @@ const studentApi = require('./routes-student');
 const files = require('./files');
 const attempts = require('./attempts');
 const subjects = require('./subjects');
+const writingApi = require('./routes-writing');
 const { httpError, sendJson, sendText, redirect, sendFile } = require('./http');
 
 const PAGES = path.join(config.root, 'pages');
@@ -25,7 +26,8 @@ const CHANGE_PW_FILES = new Set(['/assets/css/auth.css', '/assets/js/change-pass
 const ROLE_FILES = {
   '/assets/css/admin.css': 'admin', '/assets/js/admin.js': 'admin', '/assets/js/admin-ai.js': 'admin',
   '/assets/css/supervisor.css': 'supervisor', '/assets/js/supervisor.js': 'supervisor',
-  '/assets/css/exam.css': 'student', '/assets/js/exam.js': 'student'
+  '/assets/css/exam.css': 'student', '/assets/js/exam.js': 'student',
+  '/assets/css/writing.css': 'student', '/assets/js/writing.js': 'student'
 };
 
 // 旧网址（改成 /apdemo 之前的学生首页和考试页）自动跳到新位置，保留查询参数
@@ -88,6 +90,11 @@ async function handleApi(req, res, pathname) {
     if (ctx.account.type !== 'student') throw httpError(403, 'FORBIDDEN', '没有权限。');
     if (subjects.directionOf(ctx.account) !== 'apdemo') throw httpError(403, 'WRONG_DIRECTION', '这个账号不属于 AP 自学板块。');
     return studentApi(req, res, pathname, ctx);
+  }
+  if (pathname.startsWith('/api/writing/')) {
+    if (ctx.account.type !== 'student') throw httpError(403, 'FORBIDDEN', '没有权限。');
+    if (subjects.directionOf(ctx.account) !== 'writing') throw httpError(403, 'WRONG_DIRECTION', '这个账号不属于写作板块。');
+    return writingApi(req, res, pathname, ctx);
   }
   if (pathname.startsWith('/api/supervisor/')) {
     if (ctx.account.type !== 'supervisor') throw httpError(403, 'FORBIDDEN', '没有权限。');

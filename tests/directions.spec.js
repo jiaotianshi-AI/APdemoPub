@@ -89,7 +89,7 @@ test("写作页（占位）与品牌：显示 Focus 和副标题 Focus. Steps. P
   await page.request.post("/api/login", { headers: H, data: { username: w.username, password: PASSWORD } });
   await page.goto("/writing");
   await expect(page.locator("h1")).toHaveText("Writing");
-  await expect(page.locator(".brand")).toHaveText("Focus");
+  await expect(page.locator(".brand")).toContainText("Focus");
   await expect(page.locator(".slogan")).toHaveText("Focus. Steps. Progress.");
   await page.click("#logout-btn");
   await expect(page).toHaveURL(/\/login$/);

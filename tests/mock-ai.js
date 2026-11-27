@@ -27,6 +27,23 @@ function summarize(req, body) {
   };
 }
 
+// 写作板块的“请提建议”：按作文长度打分，从第 2 轮起写够 60 个词（或含 DONE）就判定 OK；含 NOQUESTIONS 返回没有问题（用来测试错误处理），含 FLAG 返回安全标记
+function writingJson(allText) {
+  const essay = (/<student_essay>\n([\s\S]*?)\n<\/student_essay>/.exec(allText) || [, ""])[1];
+  const round = Number((/Round: (\d+) of/.exec(allText) || [, "1"])[1]);
+  const w = (essay.match(/\S+/g) || []).length;
+  const m = /SCORE=([1-5])/.exec(essay);
+  const score = m ? Number(m[1]) : w < 8 ? 2 : w < 20 ? 3 : w < 40 ? 4 : 5;
+  const done = round >= 2 && (essay.includes("DONE") || w >= 60);
+  const first = (essay.split(/(?<=[.!?])\s+/)[0] || essay).slice(0, 120);
+  const questions = done || allText.includes("NOQUESTIONS") ? [] : [
+    { type: "Who", text: "Who was with you?", quote: first },
+    { type: "Where", text: "Where did this happen?", quote: first },
+    { type: "Why", text: "Why was it special to you?", quote: first }
+  ].slice(0, round >= 3 ? 3 : 2);
+  return JSON.stringify({ score, feedback: `Nice work! Round ${round}: your essay has ${w} words.`, done, questions, safety_flag: allText.includes("FLAG") });
+}
+
 const CHAT = {
   "/openai/v1/chat/completions": { name: "openai", key: "sk-openai-test-key-0001" },
   "/deepseek/chat/completions": { name: "deepseek", key: "sk-deepseek-test-key-0001" },
@@ -72,6 +89,7 @@ function chatReply(req, res, body, cfg) {
   if (marker("TRUNC")) return reply(res, 200, done({ content: '{"score": 4, "feedb' }, "length"), delay);
   if (marker("MALFORMED")) return reply(res, 200, done({ content: "我觉得大概是 4 分" }), delay);
   if (marker("BADSCORE")) return reply(res, 200, done({ content: JSON.stringify({ score: 9, feedback: "太高了" }) }), delay);
+  if (allText.includes("WRITING_ROUND")) return reply(res, 200, done({ content: writingJson(allText) }), delay);
   const m = /SCORE=([1-5])/.exec(allText);
   const score = m ? Number(m[1]) : 3;
   const text = JSON.stringify({ score, feedback: `（${cfg.name} 模拟反馈）得分点：要点齐全。评分 ${score}` });
@@ -114,6 +132,7 @@ http.createServer((req, res) => {
     if (marker("TRUNC")) return reply(res, 200, Object.assign(base, { content: [{ type: "text", text: '{"score": 4, "feedb' }], stop_reason: "max_tokens" }), delay);
     if (marker("MALFORMED")) return reply(res, 200, Object.assign(base, { content: [{ type: "text", text: "我觉得大概是 4 分" }] }), delay);
     if (marker("BADSCORE")) return reply(res, 200, Object.assign(base, { content: [{ type: "text", text: JSON.stringify({ score: 9, feedback: "太高了" }) }] }), delay);
+    if (allText.includes("WRITING_ROUND")) return reply(res, 200, Object.assign(base, { content: [{ type: "text", text: writingJson(allText) }] }), delay);
     const m = /SCORE=([1-5])/.exec(allText);
     const score = m ? Number(m[1]) : 3;
     const fenced = marker("FENCED"); // 模型把 JSON 包在 ``` 里的情况

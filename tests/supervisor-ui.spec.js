@@ -797,6 +797,7 @@ test("写作学生：题目库添加/修改/删除，剩余少于 3 个时提醒
   await expect(rem).toHaveClass(/low/);
   await expect(page.locator(".student-btn", { hasText: stu.username })).toContainText("题目不足（剩 0）");
   const add = async (title, hint) => {
+    await expect(page.locator("#w-prompt-title")).toHaveValue(""); // 上一次添加完成后输入框会被清空，等它清空再填
     await page.fill("#w-prompt-title", title);
     await page.fill("#w-prompt-hint", hint || "");
     await page.click("#w-prompt-add");
@@ -814,8 +815,11 @@ test("写作学生：题目库添加/修改/删除，剩余少于 3 个时提醒
   await expect(page.locator("#w-prompts li")).toHaveCount(3);
   await expect(page.locator("#w-prompts li").first()).toContainText("提示：Who, where, why?");
   // 重复
-  await add("my pet");
+  await expect(page.locator("#w-prompts li")).toHaveCount(3);
+  await page.fill("#w-prompt-title", "my pet");
+  await page.click("#w-prompt-add");
   await expect(page.locator("#w-prompt-msg")).toContainText("已经有这个题目");
+  await page.fill("#w-prompt-title", "");
   // 修改
   await page.getByRole("button", { name: "修改题目：My pet" }).click();
   await expect(page.locator("#w-prompt-title")).toHaveValue("My pet");

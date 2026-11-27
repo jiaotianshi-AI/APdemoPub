@@ -1,0 +1,54 @@
+/* Writing 板块（学生页） */
+.writing { max-width: 1100px; margin: 0 auto; padding: 16px; }
+.writing .notice { margin: 0 0 14px; }
+.card { background: var(--c-card, #fff); border: 1px solid var(--c-border, #d6deea); border-radius: 16px; padding: 18px 20px; margin-bottom: 16px; }
+.card h2 { margin: 0 0 6px; font-size: 1.25rem; color: var(--c-primary-dark); }
+.card h3 { margin: 16px 0 6px; font-size: 1rem; }
+.lead { font-size: 1.125rem; margin: 0; }
+.muted { color: var(--c-muted); margin: 4px 0; }
+.topic-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 10px; }
+.topic-btn { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; width: 100%; min-height: 56px; padding: 12px 16px; text-align: left; font: inherit; border: 1px solid var(--c-primary); border-radius: 12px; background: var(--c-card, #fff); cursor: pointer; }
+.topic-btn:hover { background: var(--c-primary-soft); }
+.topic-btn:focus-visible { outline: 3px solid var(--c-primary-dark); outline-offset: 2px; }
+.t-title { font-size: 1.125rem; font-weight: 700; color: var(--c-primary-dark); }
+.t-hint { color: var(--c-muted); font-size: 0.9375rem; }
+.write-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; align-items: start; }
+@media (max-width: 800px) { .write-grid { grid-template-columns: 1fr; } }
+.topic-line { font-weight: 700; margin: 0 0 4px; font-size: 1.0625rem; }
+.essay-label { display: block; font-weight: 600; margin: 10px 0 6px; }
+.essay, .answer { width: 100%; box-sizing: border-box; font: inherit; font-size: 1.125rem; line-height: 1.6; padding: 10px 12px; border: 1px solid #94a3b8; border-radius: 10px; resize: vertical; background: #fff; }
+.answer { font-size: 1rem; }
+.essay-meta { display: flex; justify-content: space-between; gap: 12px; color: var(--c-muted); font-size: 0.875rem; margin-top: 4px; min-height: 1.4em; }
+.essay-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+.essay-actions .btn { min-height: 48px; }
+.round-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 6px; }
+.round-no { font-weight: 700; color: var(--c-primary-dark); }
+.score-badge { display: inline-block; padding: 2px 12px; border-radius: 999px; font-weight: 700; background: var(--c-primary-soft); color: var(--c-primary-dark); }
+.feedback { margin: 6px 0; line-height: 1.55; white-space: pre-wrap; }
+.q-list { margin: 0; padding-left: 1.25rem; }
+.q-item { margin: 0 0 14px; }
+.q-quote { margin: 0 0 2px; color: var(--c-muted); font-style: italic; }
+.q-text { margin: 0 0 6px; font-weight: 600; }
+.q-type { display: inline-block; padding: 0 8px; margin-right: 4px; border-radius: 6px; background: #fef3c7; color: #92400e; font-size: 0.8125rem; font-weight: 700; }
+.add-hint { margin: 8px 0 0; padding: 10px 12px; border-radius: 10px; background: var(--c-ok-bg, #ecfdf3); color: var(--c-ok, #166534); font-weight: 600; }
+.steps { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.steps li { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--c-border); }
+.step-s { font-weight: 800; color: var(--c-primary-dark); }
+.final-score { display: flex; align-items: baseline; gap: 12px; margin: 10px 0; }
+.fs-label { color: var(--c-muted); font-weight: 600; }
+.fs-num { font-size: 2rem; font-weight: 800; color: var(--c-primary-dark); }
+.final-essay { white-space: pre-wrap; line-height: 1.6; padding: 12px; background: #f8fafc; border: 1px solid var(--c-border); border-radius: 10px; }
+.history { margin-top: 24px; }
+.history h2 { font-size: 1.125rem; }
+.history-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.h-item { padding: 10px 0; border-top: 1px solid var(--c-border); }
+.h-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.h-day { font-weight: 700; }
+.h-kind { color: var(--c-muted); }
+.h-missed .h-kind, .h-unfinished .h-kind { color: #92400e; }
+.h-steps { margin: 4px 0; color: var(--c-muted); }
+.h-detail { margin-top: 8px; }
+.h-item .btn { min-height: 44px; margin-top: 6px; }
+.msg.error { color: var(--c-danger); }
+.writing .notice { padding: 10px 14px; border-radius: 10px; background: #eff6ff; color: var(--c-primary-dark); font-size: 0.9375rem; }
+.btn:disabled { opacity: 0.55; cursor: not-allowed; }
