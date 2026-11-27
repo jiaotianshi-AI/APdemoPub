@@ -679,3 +679,15 @@ test("家长端主页面：测试卡片里的题目、回答 PDF 文件名缩略
   await page.click("#score-submit");
   await expect(c.locator(".q-row:not(.q-head)").first()).toContainText("Stu*l.pdf");
 });
+
+test("修改测试页：“添加 PDF”和“移除”简化为“＋”和“－”（仍有无障碍名称）", async ({ page }) => {
+  await setup(page, 1);
+  await page.click("#new-btn");
+  await expect(page.locator("#q-files .picker-btn")).toHaveText("＋");
+  await expect(page.locator("#q-files .picker-btn")).toHaveAttribute("title", "添加 PDF");
+  await page.locator("#q-files input[type=file]").setInputFiles([file("a.pdf")]);
+  const rm = page.getByRole("button", { name: "移除 a.pdf" });
+  await expect(rm).toHaveText("－");
+  await rm.click();
+  await expect(page.locator("#q-files .file-item")).toHaveCount(0);
+});

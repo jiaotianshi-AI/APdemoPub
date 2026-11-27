@@ -114,7 +114,8 @@
     var items = initial.map(function (f) { return { id: f.id, name: f.name, size: f.size, weight: f.weight || 1 }; });
     var uploading = 0;
     var ul = el("ul", "file-list");
-    var picker = el("label", "picker-btn", "添加 PDF");
+    var picker = el("label", "picker-btn", "＋");
+    picker.title = "添加 PDF";
     var input = el("input");
     input.type = "file";
     input.accept = "application/pdf,.pdf";
@@ -147,8 +148,9 @@
         wi.addEventListener("input", function () { f.weight = wi.value === "" ? NaN : Number(wi.value); });
         wl.appendChild(wi);
         li.appendChild(wl);
-        var rm = el("button", "btn", "移除");
+        var rm = el("button", "btn", "－");
         rm.type = "button";
+        rm.title = "移除";
         rm.setAttribute("aria-label", "移除 " + f.name);
         rm.addEventListener("click", function () { items.splice(i, 1); render(); });
         li.appendChild(rm);
