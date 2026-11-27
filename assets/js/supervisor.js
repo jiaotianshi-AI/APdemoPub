@@ -883,7 +883,7 @@
   /* ---------- 启动 ---------- */
   api("GET", "/api/me").then(function (me) {
     state.me = me;
-    $("whoami").textContent = "当前账号：" + me.username + "（" + me.tzLabel.zh + "）";
+    $("whoami").textContent = "当前账号：" + me.username + "（" + me.tzLabel.zh.replace("，", "，时区：") + "）";
     refreshTzNotice();
   }).catch(function () { /* 忽略 */ });
   api("GET", "/api/supervisor/students").then(function (data) {

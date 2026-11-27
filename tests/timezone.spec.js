@@ -150,12 +150,12 @@ test("学生页右上角显示“账号名（时区）”，时间不再带“�
   await page.context().clearCookies();
   await page.request.post("/api/login", { headers: H, data: { username: stu.username, password: PASSWORD } });
   await page.goto("/?lang=zh");
-  await expect(page.locator("#user-name")).toHaveText(`${stu.username}（北京，+8）`);
+  await expect(page.locator("#user-name")).toHaveText(`${stu.username}（北京，时区：+8）`);
   await expect(page.locator("#progress-body")).toContainText("2031年3月15日 3:00 PM");
   await expect(page.locator("body")).not.toContainText("温哥华时间");
   await expect(page.locator("body")).not.toContainText("Vancouver time");
   await page.click('.lang-btn[data-lang="en"]');
-  await expect(page.locator("#user-name")).toHaveText(`${stu.username} (Beijing, +8)`);
+  await expect(page.locator("#user-name")).toHaveText(`${stu.username} (Beijing, time zone: +8)`);
   await expect(page.locator("#progress-body")).toContainText("Mar 15, 2031, 3:00 PM");
   await expect(page.locator("#progress-body")).not.toContainText("Vancouver time");
   await page.click("#all-tests-btn");
@@ -165,7 +165,7 @@ test("学生页右上角显示“账号名（时区）”，时间不再带“�
   // 测试页的右上角也显示
   const list = (await (await page.request.get("/api/student/assessments")).json()).assessments;
   await page.goto(`/exam?id=${list[0].id}&early=1&lang=zh`);
-  await expect(page.locator("#user-name")).toHaveText(`${stu.username}（北京，+8）`);
+  await expect(page.locator("#user-name")).toHaveText(`${stu.username}（北京，时区：+8）`);
   await expect(page.locator("#exam-root")).toContainText("2031年3月15日 3:00 PM");
   await expect(page.locator("body")).not.toContainText("温哥华时间");
   await sctx.dispose();
@@ -180,7 +180,7 @@ test("督导者页：右上角“账号（时区）”；侧边栏显示学生�
   await page.context().clearCookies();
   await page.request.post("/api/login", { headers: H, data: { username: sup.username, password: PASSWORD } });
   await page.goto("/supervisor");
-  await expect(page.locator("#whoami")).toHaveText(`当前账号：${sup.username}（温哥华，-7）`);
+  await expect(page.locator("#whoami")).toHaveText(`当前账号：${sup.username}（温哥华，时区：-7）`);
   await expect(page.locator("#student-list")).toContainText("时区：北京，+8");
   await expect(page.locator("#student-list")).toContainText("时区：东京，+9");
   await expect(page.locator("body")).not.toContainText("温哥华时间");
@@ -217,7 +217,7 @@ test("管理页：新建/编辑账号时可选时区（默认温哥华），列�
   await page.context().clearCookies();
   await page.request.post("/api/login", { headers: H, data: { username: "e2e_admin", password: PASSWORD } });
   await page.goto("/admin");
-  await expect(page.locator("#whoami")).toContainText("e2e_admin（温哥华，-7）");
+  await expect(page.locator("#whoami")).toContainText("e2e_admin（温哥华，时区：-7）");
   const name = uid("tzadm");
   await page.click("#new-btn");
   await expect(page.locator("#new-tz")).toHaveValue("America/Vancouver");

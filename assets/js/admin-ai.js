@@ -121,6 +121,6 @@
     show("save-msg", "已把默认提示语填入编辑框，点“保存设置”后生效。", "");
   });
 
-  api("GET", "/api/me").then(function (me) { $("whoami").textContent = "当前管理员：" + me.username + "（" + me.tzLabel.zh + "）"; }).catch(function () { /* 忽略 */ });
+  api("GET", "/api/me").then(function (me) { $("whoami").textContent = "当前管理员：" + me.username + "（" + me.tzLabel.zh.replace("，", "，时区：") + "）"; }).catch(function () { /* 忽略 */ });
   api("GET", "/api/admin/ai").then(render).catch(function (err) { show("save-msg", err.message, "error"); });
 })();

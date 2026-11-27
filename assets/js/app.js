@@ -569,8 +569,8 @@
     var u = state.user;
     var n = body("user-name");
     if (!n) return;
-    // 账号名和所在时区一起显示，例如：Nathan（温哥华，-7）
-    var label = u && u.tzLabel ? pick(u.tzLabel) : "";
+    // 账号名和所在时区一起显示，例如：Nathan（温哥华，时区：-7）
+    var label = u && u.tzLabel ? i18n.tzTitle(u.tzLabel) : "";
     n.textContent = u ? (label ? (i18n.getLang() === "zh" ? u.username + "（" + label + "）" : u.username + " (" + label + ")") : u.username) : "";
   }
 

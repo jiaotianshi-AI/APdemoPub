@@ -314,6 +314,6 @@
   });
   $("search").addEventListener("input", function () { state.search = $("search").value; render(); });
 
-  api("GET", "/api/me").then(function (me) { $("whoami").textContent = "当前管理员：" + me.username + "（" + me.tzLabel.zh + "）"; }).catch(function () { /* 忽略 */ });
+  api("GET", "/api/me").then(function (me) { $("whoami").textContent = "当前管理员：" + me.username + "（" + me.tzLabel.zh.replace("，", "，时区：") + "）"; }).catch(function () { /* 忽略 */ });
   load();
 })();

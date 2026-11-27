@@ -343,6 +343,8 @@
     setLang: setLang,
     getLang: function () { return current; },
     t: t,
-    pick: pick
+    pick: pick,
+    // 右上角账号旁的时区：温哥华，时区：-7 / Vancouver, time zone: -7
+    tzTitle: function (obj) { var t = pick(obj); return current === "zh" ? t.replace("，", "，时区：") : t.replace(", ", ", time zone: "); }
   };
 })();

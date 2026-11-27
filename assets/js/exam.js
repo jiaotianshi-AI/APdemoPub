@@ -486,7 +486,7 @@
   function renderUser() {
     var n = document.getElementById("user-name");
     if (!n || !me) return;
-    var label = me.tzLabel ? i18n.pick(me.tzLabel) : "";
+    var label = me.tzLabel ? i18n.tzTitle(me.tzLabel) : "";
     n.textContent = label ? (i18n.getLang() === "zh" ? me.username + "（" + label + "）" : me.username + " (" + label + ")") : me.username;
   }
   function init() {

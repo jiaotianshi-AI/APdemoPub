@@ -177,9 +177,9 @@ test("T11 用户区：右上角显示当前账号和“退出登录”，点击�
   const login = await page.request.post("/api/login", { headers: { "X-Requested-With": "apdemo" }, data: { username: "e2e_student", password: "E2e-Passw0rd!" } });
   expect(login.status()).toBe(200);
   await ready(page);
-  await expect(page.locator("#user-name")).toHaveText("e2e_student（温哥华，-7）"); // 账号名和所在时区一起显示
+  await expect(page.locator("#user-name")).toHaveText("e2e_student（温哥华，时区：-7）"); // 账号名和所在时区一起显示
   await page.click('.lang-btn[data-lang="en"]');
-  await expect(page.locator("#user-name")).toHaveText("e2e_student (Vancouver, -7)");
+  await expect(page.locator("#user-name")).toHaveText("e2e_student (Vancouver, time zone: -7)");
   const btn = page.locator("#logout-btn");
   const box = await btn.boundingBox();
   const vw = page.viewportSize().width;
