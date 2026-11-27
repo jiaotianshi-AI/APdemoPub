@@ -243,7 +243,8 @@
     row.appendChild(el("span", "lbl", label));
     if (!files.length) { row.appendChild(el("span", "muted", "（暂无）")); return row; }
     files.forEach(function (f) {
-      var a = el("a", "file-link", f.name);
+      var a = el("a", "file-link", shortName(f.name));
+      a.title = f.name;
       a.href = "/api/supervisor/files/" + f.id;
       a.target = "_blank";
       a.rel = "noopener noreferrer";
@@ -278,7 +279,8 @@
     a.questionFiles.forEach(function (q) {
       var row = el("div", "q-row");
       row.appendChild(el("span", "q-label", q.label));
-      var ql = el("a", "file-link", q.name);
+      var ql = el("a", "file-link", shortName(q.name));
+      ql.title = q.name;
       ql.href = "/api/supervisor/files/" + q.id;
       ql.target = "_blank";
       ql.rel = "noopener noreferrer";
@@ -293,7 +295,8 @@
       row.appendChild(tcell);
       var cell = el("span");
       if (q.answerFile) {
-        var al = el("a", "file-link", q.answerFile.name);
+        var al = el("a", "file-link", shortName(q.answerFile.name));
+        al.title = q.answerFile.name;
         al.href = "/api/supervisor/files/" + q.answerFile.id;
         al.target = "_blank";
         al.rel = "noopener noreferrer";
@@ -450,7 +453,8 @@
       data.questions.forEach(function (q) {
         var box = el("div", "view-q");
         box.appendChild(el("h3", "", q.label + (q.score ? "　评分 " + q.score + " / 5" : "")));
-        var link = el("a", "file-link", q.name);
+        var link = el("a", "file-link", shortName(q.name));
+        link.title = q.name;
         link.href = "/api/supervisor/files/" + q.id;
         link.target = "_blank";
         link.rel = "noopener noreferrer";
@@ -461,7 +465,8 @@
             box.appendChild(el("div", "answer-text", q.answer && q.answer.trim() ? q.answer : "（没有填写）"));
           } else box.appendChild(el("p", "muted", "学生选择纸质作答，请在“答题与评分”里为这道题上传回答 PDF。"));
           if (q.answerFile) {
-            var al = el("a", "file-link", "回答 PDF：" + q.answerFile.name);
+            var al = el("a", "file-link", "回答 PDF：" + shortName(q.answerFile.name));
+            al.title = q.answerFile.name;
             al.href = "/api/supervisor/files/" + q.answerFile.id;
             al.target = "_blank";
             al.rel = "noopener noreferrer";

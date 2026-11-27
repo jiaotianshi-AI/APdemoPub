@@ -664,3 +664,18 @@ test("答题与评分页：回答 PDF / 判分标准 / 题目的文件名也缩�
   await row.locator("input[type=file][aria-label*='回答 PDF']").setInputFiles(file("Student_Answer_Scan_final.pdf"));
   await expect(row.locator(".fname").first()).toHaveText("Stu*l.pdf");
 });
+
+test("家长端主页面：测试卡片里的题目、回答 PDF 文件名缩略显示，悬停显示全名", async ({ page }) => {
+  await setup(page, 1);
+  const unit = "Unit " + uid("mn");
+  await createVia(page, unit, { files: ["AP_Bio_2021_FRQ_Q1.pdf"] });
+  const c = card(page, unit);
+  const link = c.locator(".q-row:not(.q-head) .file-link").first();
+  await expect(link).toHaveText("AP_*1.pdf");
+  await expect(link).toHaveAttribute("title", "AP_Bio_2021_FRQ_Q1.pdf");
+  await expect(c).not.toContainText("AP_Bio_2021_FRQ_Q1.pdf");
+  await c.getByRole("button", { name: /^答题与评分：/ }).click();
+  await page.locator("#grade-rows input[type=file][aria-label*='回答 PDF']").setInputFiles(file("Student_Answer_Scan_final.pdf"));
+  await page.click("#score-submit");
+  await expect(c.locator(".q-row:not(.q-head)").first()).toContainText("Stu*l.pdf");
+});
