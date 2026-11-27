@@ -187,7 +187,7 @@ test("每题的回答 PDF 与评分：每题可单独上传回答、评分；评
   await expect(c).toContainText("已评 0 / 3 题");
 
   await c.getByRole("button", { name: /^答题与评分：/ }).click();
-  await expect(page.locator("#formula-hint")).toContainText("加权平均值，四舍五入到整数");
+  await expect(page.locator("#score-dialog")).not.toContainText("加权平均值，四舍五入到整数"); // 不再显示评分规则说明
   await expect(page.locator("#grade-rows .grade-row")).toHaveCount(3);
   await expect(page.locator("#grade-overall")).toContainText("还不能计算（已评 0 / 3 题）");
   // Q1：上传回答 PDF + 评分 5；Q2：只评分 3；Q3 暂不评
@@ -514,35 +514,21 @@ test("新建测试：每个题目 PDF 旁边可以设置权重（默认 1）；�
   await expect(rows.nth(1)).toContainText("×2");
   await expect(rows.nth(2)).toContainText("×1");
 
-  // 评分对话框：显示每题权重，可以改；预览按加权平均：Q1=5, Q2=1, Q3=5 → (5+2+5)/4 = 3
+  // 评分对话框：不显示规则说明，也不能改权重（权重在“修改测试”里设定）；预览仍按加权平均：Q1=5, Q2=1, Q3=5 → (5+2+5)/4 = 3
   await c.getByRole("button", { name: /^答题与评分：/ }).click();
-  await expect(page.locator("#formula-hint")).toContainText("加权平均");
-  const wInputs = page.locator("#grade-rows .grade-row input[type=number]");
-  await expect(wInputs.nth(1)).toHaveValue("2");
+  await expect(page.locator("#score-dialog")).not.toContainText("加权平均 =");
+  await expect(page.locator("#score-dialog")).not.toContainText("权重");
+  await expect(page.locator("#grade-rows .grade-row input[type=number]")).toHaveCount(0);
   const selects = page.locator("#grade-rows .grade-row select");
   await selects.nth(0).selectOption("5");
   await selects.nth(1).selectOption("1");
   await selects.nth(2).selectOption("5");
   await expect(page.locator("#grade-overall")).toContainText("汇总评分：3 / 5（加权平均 3）");
-  // 把 Q2 的权重改成 1 → 普通平均 3.67 → 4
-  await wInputs.nth(1).fill("1");
-  await expect(page.locator("#grade-overall")).toContainText("汇总评分：4 / 5（加权平均 3.67）");
-  await wInputs.nth(1).fill("0");
-  await page.click("#score-submit");
-  await expect(page.locator("#score-error")).toContainText("权重必须是 1–100 的整数");
-  await wInputs.nth(1).fill("2");
   await page.click("#score-submit");
   await expect(page.locator("#score-dialog")).toBeHidden();
   await expect(c).toContainText("已评分");
   await expect(c).toContainText("3 / 5（加权平均 3）");
-
-  // 已评分后改权重（Q1 权重 3：(15+2+5)/6 = 3.67 → 4），汇总随之变化
-  await expand(page, unit);
-  await c.getByRole("button", { name: /^修改评分：/ }).click();
-  await wInputs.nth(0).fill("3");
-  await page.click("#score-submit");
-  await expect(c).toContainText("4 / 5");
-  await expect(rows.nth(0)).toContainText("×3");
+  await expect(rows.nth(1)).toContainText("×2"); // 保存评分不会改动权重
 });
 
 test("修改待测试：能改每个题目的权重", async ({ page }) => {
@@ -665,4 +651,16 @@ test("修改测试页：题目清单的文件名缩略为“前 3 个字符 + * 
   await expect(items.nth(1)).toHaveText("Q2　短名.pdf"); // 不超过 8 个字符：完整显示
   await expect(items.nth(0)).toHaveAttribute("title", /^AP_Bio_2021_FRQ_Q1\.pdf（\d+ KB）$/); // 鼠标悬停可看全名
   await expect(page.locator("#q-files")).not.toContainText("KB");
+});
+
+test("答题与评分页：回答 PDF / 判分标准 / 题目的文件名也缩略显示", async ({ page }) => {
+  await setup(page, 1);
+  const unit = "Unit " + uid("sn");
+  await createVia(page, unit, { files: ["AP_Bio_2021_FRQ_Q1.pdf"] });
+  const c = card(page, unit);
+  await c.getByRole("button", { name: /^答题与评分：/ }).click();
+  const row = page.locator("#grade-rows .grade-row").first();
+  await expect(row.locator(".grade-head .file-link")).toHaveText("AP_*1.pdf");
+  await row.locator("input[type=file][aria-label*='回答 PDF']").setInputFiles(file("Student_Answer_Scan_final.pdf"));
+  await expect(row.locator(".fname").first()).toHaveText("Stu*l.pdf");
 });

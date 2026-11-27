@@ -3,8 +3,6 @@
   "use strict";
 
   var STATUS = { scheduled: "待测试", in_progress: "测试中", submitted: "已提交，待评分", graded: "已评分" };
-  // 汇总评分公式说明（计算本身在服务器 server/scoring.js；要改公式时两处一起改）
-  var FORMULA_TEXT = "汇总评分 = 各题评分的加权平均值，四舍五入到整数（x.5 进位）：加权平均 = Σ（权重 × 评分）÷ Σ权重。权重是 1–100 的整数（默认 1，所有题权重相同时就是普通平均），权重越大，这道题对汇总评分影响越大。每题评分为 1–5 的整数。每道题都有评分后自动算出汇总，状态变为“已评分”；任何一题评分为空，则不计算汇总。";
   var MAX_FILES = 10;
   var MAX_BYTES = 20 * 1024 * 1024;
   var state = { students: [], currentId: null, assessments: [], me: null };
@@ -609,7 +607,8 @@
     var note = el("p", "upload-note");
     note.setAttribute("role", "status");
     function draw() {
-      nameEl.textContent = current ? current.name : "（暂无，可为空）";
+      nameEl.textContent = current ? shortName(current.name) : "（暂无，可为空）";
+      nameEl.title = current ? current.name : "";
       if (onChange) onChange(current);
       nameEl.className = current ? "fname" : "fname muted";
       rm.hidden = !current;
@@ -731,7 +730,7 @@
   }
   function updateOverall() {
     var scores = gradeForm.rows.map(function (r) { return r.select.value === "" ? null : Number(r.select.value); });
-    var weights = gradeForm.rows.map(function (r) { return r.weight.value === "" ? NaN : Number(r.weight.value); });
+    var weights = gradeForm.rows.map(function (r) { return r.weightValue; });
     var s = summarizeScores(scores, weights);
     $("grade-overall").textContent = s.overall !== null
       ? "汇总评分：" + s.overall + " / 5（加权平均 " + (Math.round(s.avg * 100) / 100) + "）。保存后这场测试的状态为“已评分”。"
@@ -743,7 +742,6 @@
     gradeForm.rows = [];
     showMsg("score-error", "");
     $("score-summary").textContent = a.subject + " · " + a.unit + "　" + fmtWall(a.scheduledWall);
-    $("formula-hint").textContent = FORMULA_TEXT;
     $("ai-all-msg").hidden = true;
     var host = $("grade-rows");
     clear(host);
@@ -751,8 +749,9 @@
       var box = el("div", "grade-row");
       var head = el("div", "grade-head");
       head.appendChild(el("strong", "q-label", q.label));
-      var ql = el("a", "file-link", q.name);
+      var ql = el("a", "file-link", shortName(q.name));
       ql.href = "/api/supervisor/files/" + q.id;
+      ql.title = q.name;
       ql.target = "_blank";
       ql.rel = "noopener noreferrer";
       ql.setAttribute("aria-label", q.label + " 问题：" + q.name + "（在新标签页打开）");
@@ -776,21 +775,6 @@
       box.appendChild(rubHost);
       row.answer = picker;
       row.rubric = rubric;
-      var wf = el("div", "field");
-      var wl = el("label", "", q.label + " 权重（1–100 的整数）");
-      var wi = el("input");
-      wi.type = "number";
-      wi.min = "1";
-      wi.max = "100";
-      wi.step = "1";
-      wi.id = "weight-" + q.id;
-      wi.value = String(q.weight || 1);
-      wi.setAttribute("inputmode", "numeric");
-      wl.htmlFor = wi.id;
-      wi.addEventListener("input", updateOverall);
-      wf.appendChild(wl);
-      wf.appendChild(wi);
-      box.appendChild(wf);
       var f = el("div", "field");
       var l = el("label", "", q.label + " 评分");
       var sel = el("select");
@@ -805,7 +789,7 @@
       f.appendChild(l);
       f.appendChild(sel);
       box.appendChild(f);
-      row.picker = picker; row.select = sel; row.weight = wi;
+      row.picker = picker; row.select = sel; row.weightValue = q.weight || 1;
       aiPart = aiBlock(q, row);
       row.ai = aiPart;
       box.appendChild(aiPart.el);
@@ -845,10 +829,8 @@
     showMsg("score-error", "");
     if (gradeForm.rows.some(function (r) { return r.picker.busy() || r.rubric.busy(); })) return showMsg("score-error", "文件还在上传，请稍等。");
     var a = gradeForm.assessment;
-    var bad = gradeForm.rows.filter(function (r) { var w = Number(r.weight.value); return r.weight.value === "" || !Number.isInteger(w) || w < 1 || w > 100; });
-    if (bad.length) return showMsg("score-error", "每道题的权重必须是 1–100 的整数。");
     var questions = gradeForm.rows.map(function (r) {
-      return { questionFileId: r.q.id, answerFileId: r.picker.value(), rubricFileId: r.rubric.value(), score: r.select.value === "" ? null : Number(r.select.value), weight: Number(r.weight.value) };
+      return { questionFileId: r.q.id, answerFileId: r.picker.value(), rubricFileId: r.rubric.value(), score: r.select.value === "" ? null : Number(r.select.value), weight: r.weightValue };
     });
     $("score-submit").disabled = true;
     api("PATCH", "/api/supervisor/assessments/" + a.id, { questions: questions }).then(function (data) {
