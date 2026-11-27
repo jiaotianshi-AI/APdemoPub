@@ -691,3 +691,22 @@ test("修改测试页：“添加 PDF”和“移除”简化为“＋”和“�
   await rm.click();
   await expect(page.locator("#q-files .file-item")).toHaveCount(0);
 });
+
+test("答题与评分页：回答 PDF / 判分标准的上传、替换、移除按钮简化为“＋”和“－”", async ({ page }) => {
+  await setup(page, 1);
+  const unit = "Unit " + uid("pm");
+  await createVia(page, unit, { files: ["问题1.pdf"] });
+  await card(page, unit).getByRole("button", { name: /^答题与评分：/ }).click();
+  const row = page.locator("#grade-rows .grade-row").first();
+  const pickers = row.locator(".ans-line .picker-btn");
+  await expect(pickers).toHaveText(["＋", "＋"]);
+  await expect(pickers.nth(0)).toHaveAttribute("title", "上传回答 PDF");
+  await expect(pickers.nth(1)).toHaveAttribute("title", "上传判分标准 PDF");
+  await expect(row.locator(".ans-line .btn:visible")).toHaveCount(0);
+  await row.locator("input[type=file][aria-label*='回答 PDF']").setInputFiles(file("第一版.pdf"));
+  await expect(pickers.nth(0)).toHaveAttribute("title", "替换回答 PDF");
+  const rm = row.getByRole("button", { name: /^移除 Q1 的回答 PDF/ });
+  await expect(rm).toHaveText("－");
+  await rm.click();
+  await expect(pickers.nth(0)).toHaveAttribute("title", "上传回答 PDF");
+});

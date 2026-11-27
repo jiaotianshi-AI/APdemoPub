@@ -602,10 +602,11 @@
     var busy = 0;
     var line = el("div", "ans-line");
     var nameEl = el("span", "fname");
-    var rm = el("button", "btn", "移除");
+    var rm = el("button", "btn", "－");
     rm.type = "button";
+    rm.title = "移除";
     rm.setAttribute("aria-label", "移除 " + qLabel + " 的" + noun);
-    var picker = el("label", "picker-btn", "上传" + noun);
+    var picker = el("label", "picker-btn", "＋");
     var input = el("input");
     input.type = "file";
     input.accept = "application/pdf,.pdf";
@@ -619,7 +620,7 @@
       if (onChange) onChange(current);
       nameEl.className = current ? "fname" : "fname muted";
       rm.hidden = !current;
-      picker.firstChild.textContent = current ? "替换" : "上传" + noun;
+      picker.title = (current ? "替换" : "上传") + noun;
     }
     rm.addEventListener("click", function () { current = null; draw(); });
     input.addEventListener("change", function () {
