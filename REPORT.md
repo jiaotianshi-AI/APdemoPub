@@ -175,3 +175,8 @@
 - **安全标记**：AI 判断涉及伤害/欺凌/危险时，该轮记录 `flag`，并写入 `writing_flags`；孩子页面显示固定的温和提示（“If anything is worrying you, please talk to a parent or a teacher you trust.”）；督导者页的标记和回看是阶段 4。
 - **保守决定**：① 年级期望只存英文；② 用量统计不做图表，只做汇总和表格；③ 不自动通知督导者安全标记（阶段 4 在督导者页里标出）。
 - 测试：全部通过（AI 用例只在 Chromium 里串行运行）。
+
+## 18. AI 评分接口核对：DeepSeek 能读 PDF；Claude 订阅额度不能用于本系统
+- **DeepSeek 更新**：之前我按“DeepSeek 只能读文字”实现，是过时的。DeepSeek 官方文档现在提供**文件接口**（`POST /files`，`purpose=text_recognition` 只取文字、含扫描文字识别，`rich_layout_recognition` 连图表一起；先解析、返回 `file_id`；聊天里用 `{"type":"file","file_id":…}` 引用；`deepseek-flash` 支持），模型名也改为 `deepseek-flash` 和 `deepseek-v4-pro`（旧名 `deepseek-chat`、`deepseek-reasoner` 在文档里已不再列出）。已按文档改成：默认模型 `deepseek-flash`；PDF 先上传解析、聊天引用、**评分后立即删除**；`purpose` 先于 `file` 发送；JSON 用 `json_object` 模式；`max_tokens` 16000（思考内容占输出 token）；写作建议关闭“思考”；`deepseek-v4-pro` 等只读文字的模型仍走 unpdf 提取。解析费用约 0.225 美元 / 1000 页。
+- **未在真实 DeepSeek 上验证**（本环境不能访问其接口），请在 `/admin/ai` 选 DeepSeek、模型 `deepseek-flash` 后“测试连通性”，再让督导者真实评一道题；如果之前保存过 `deepseek-chat`，请在页面里改成 `deepseek-flash`。
+- **Claude 订阅（Pro/Max）额度不能用于本系统**：本系统用的是 Anthropic API（Messages API + API 密钥），按量计费，和 claude.ai 订阅是两套账户和额度；Anthropic 的条款也明确不允许第三方应用拿订阅的登录/凭据代用户发请求。需要 Claude 时，请在 Anthropic Console 创建 API 密钥并充值。

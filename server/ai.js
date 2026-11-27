@@ -14,7 +14,7 @@ const files = require('./files');
 const ANTHROPIC_VERSION = '2026-10-21';
 const MAX_TOKENS_CLAUDE = 16000; // 包含模型思考用的 token，给足以免被截断
 const MAX_TOKENS_OPENAI = 16000;
-const MAX_TOKENS_DEEPSEEK = 8000; // DeepSeek deepseek-chat 的输出上限是 8K
+const MAX_TOKENS_DEEPSEEK = 16000; // DeepSeek 默认开启“思考”，思考的内容也占输出 token，给足以免被截断
 const MAX_TOTAL_BYTES = 24 * 1024 * 1024; // 一次请求里 PDF 的总大小上限
 const MAX_PDF_TEXT_CHARS = 100000; // 单个 PDF 提取出的文字上限
 const MIN_PDF_TEXT_CHARS = 20; // 少于这个字数，认为是扫描件
@@ -41,11 +41,13 @@ const PROVIDERS = {
     ]
   },
   deepseek: {
-    id: 'deepseek', label: 'DeepSeek', kind: 'openai', pdf: 'text', json: 'prompt', maxTokens: MAX_TOKENS_DEEPSEEK,
-    defaultModel: 'deepseek-chat',
+    // deepseek-flash 可以通过 DeepSeek 的“文件接口”读 PDF（先上传解析，再用 file_id 引用）；其他模型（如 deepseek-v4-pro）只读文字
+    id: 'deepseek', label: 'DeepSeek', kind: 'openai', pdf: 'files', json: 'object', maxTokens: MAX_TOKENS_DEEPSEEK,
+    filesModelPattern: '^deepseek-(v4-)?flash',
+    defaultModel: 'deepseek-flash',
     models: [
-      { id: 'deepseek-chat', note: '通用、便宜' },
-      { id: 'deepseek-reasoner', note: '会先推理再回答，更慢' }
+      { id: 'deepseek-flash', note: '推荐：能读 PDF（含扫描的文字）、便宜' },
+      { id: 'deepseek-v4-pro', note: '更强，但只读文字（PDF 先提取文字）' }
     ]
   },
   custom: {
@@ -127,8 +129,9 @@ function resolve(cfg) {
   let base;
   if (p.custom) base = validateBaseUrl(cfg.baseUrl);
   else base = config.aiBases[p.id];
-  const pdfNative = p.pdf === 'native' ? true : p.pdf === 'text' ? false : !!cfg.pdfNative;
-  return { p, base, pdfNative, label: p.custom ? `${p.label}（${new URL(base).host}）` : p.label };
+  const pdfNative = p.pdf === 'native' ? true : p.pdf === 'configurable' ? !!cfg.pdfNative : false;
+  const pdfFiles = p.pdf === 'files' && new RegExp(p.filesModelPattern).test(String(cfg.model || '')); // 走 DeepSeek 文件接口
+  return { p, base, pdfNative, pdfFiles, label: p.custom ? `${p.label}（${new URL(base).host}）` : p.label };
 }
 
 /* ---------- Anthropic ---------- */
@@ -150,6 +153,31 @@ function openaiText(data) {
   if (typeof m.content === 'string') return m.content.trim();
   if (Array.isArray(m.content)) return m.content.map((b) => (b && b.text) || '').join('\n').trim();
   return '';
+}
+
+/* ---------- DeepSeek 文件接口：上传 PDF（解析后得到 file_id），聊天里用 file_id 引用，用完删除 ---------- */
+async function deepseekUpload(r, apiKey, buf, filename) {
+  const form = new FormData();
+  form.append('purpose', 'text_recognition'); // 必须在 file 之前；只取文字（含扫描件的文字识别），不取图表
+  form.append('file', new Blob([buf], { type: 'application/pdf' }), filename);
+  let res;
+  try { res = await fetch(`${r.base}/files`, { method: 'POST', headers: { authorization: `Bearer ${apiKey}` }, body: form, signal: AbortSignal.timeout(config.aiTimeoutMs) }); } catch (e) {
+    if (e && (e.name === 'TimeoutError' || e.name === 'AbortError')) throw new AiError('AI_TIMEOUT', `${r.label} 解析 PDF 超时，请稍后再试。`, 504);
+    throw new AiError('AI_UNREACHABLE', `无法连接 ${r.label}，请检查服务器的网络（出站 HTTPS 是否放行）。`, 502);
+  }
+  let data = null;
+  try { data = await res.json(); } catch (e) { /* 不是 JSON */ }
+  if (!res.ok) {
+    const msg = data && data.error && (data.error.message || (typeof data.error === 'string' ? data.error : null));
+    if (res.status === 400) throw new AiError('AI_PDF_UNREADABLE', `${r.label} 无法解析这个 PDF（文件可能损坏、有密码或格式不支持）${msg ? '：' + String(msg).slice(0, 200) : ''}`, 422);
+    if (res.status === 408 || res.status === 504) throw new AiError('AI_TIMEOUT', `${r.label} 解析 PDF 超时，请稍后再试。`, 504);
+    throw explain(r.label, res.status, msg);
+  }
+  if (!data || typeof data.id !== 'string') throw new AiError('AI_BAD_RESPONSE', `${r.label} 返回的内容无法识别。`);
+  return data.id;
+}
+async function deepseekDelete(r, apiKey, ids) { // 尽力而为：失败不影响结果（文件也会占用账号的存储，所以用完就删）
+  await Promise.all(ids.map((id) => fetch(`${r.base}/files/${encodeURIComponent(id)}`, { method: 'DELETE', headers: { authorization: `Bearer ${apiKey}` }, signal: AbortSignal.timeout(15000) }).catch(() => null)));
 }
 
 /* ---------- PDF ---------- */
@@ -206,7 +234,9 @@ async function test(cfg) {
     if (data.stop_reason === 'refusal') throw new AiError('AI_REFUSED', 'AI 拒绝了测试请求。');
     reply = anthropicText(data); model = data.model;
   } else {
-    const data = await openaiCall(r, cfg.apiKey, Object.assign({ model: cfg.model, messages: [{ role: 'user', content: q }] }, tokenLimit(r.p, 1024)));
+    const body = Object.assign({ model: cfg.model, messages: [{ role: 'user', content: q }] }, tokenLimit(r.p, 1024));
+    if (r.p.id === 'deepseek') body.thinking = { type: 'disabled' };
+    const data = await openaiCall(r, cfg.apiKey, body);
     reply = openaiText(data); model = data.model;
   }
   return { latencyMs: Date.now() - started, model: model || cfg.model, reply: reply.slice(0, 200) };
@@ -260,7 +290,18 @@ async function gradeAnthropic(r, cfg, input, bufs) {
 async function gradeOpenAi(r, cfg, input, bufs) {
   const tail = '请依据判分标准，给这道题的学生回答打分（1–5 的整数），并给出简明的反馈。';
   let content;
-  if (r.pdfNative) {
+  const uploaded = [];
+  try {
+  if (r.pdfFiles) {
+    // DeepSeek：先逐个上传解析，再用 file_id 引用（file_id 只在本次请求里用，结束后删除）
+    const up = async (buf, name) => { const id = await deepseekUpload(r, cfg.apiKey, buf, name); uploaded.push(id); return { type: 'file', file_id: id }; };
+    const q = await up(bufs.q, 'question.pdf');
+    const a = bufs.a ? await up(bufs.a, 'answer.pdf') : null;
+    const rub = await up(bufs.r, 'rubric.pdf');
+    content = [{ type: 'text', text: '【1. 题目（PDF）】' }, q, { type: 'text', text: '【2. 学生的回答' + (a ? '（PDF）】' : '（文字）】') }];
+    if (a) content.push(a); else content.push({ type: 'text', text: '<student_answer>\n' + input.answerText + '\n</student_answer>' });
+    content.push({ type: 'text', text: '【3. 判分标准（PDF）】' }, rub, { type: 'text', text: tail });
+  } else if (r.pdfNative) {
     // 能直接读 PDF：用 file 内容块（OpenAI Chat Completions 的文件输入）
     const file = (buf, name) => ({ type: 'file', file: { filename: name, file_data: 'data:application/pdf;base64,' + buf.toString('base64') } });
     content = [{ type: 'text', text: '【1. 题目（PDF）】' }, file(bufs.q, 'question.pdf'), { type: 'text', text: '【2. 学生的回答' + (bufs.a ? '（PDF）】' : '（文字）】') }];
@@ -275,14 +316,8 @@ async function gradeOpenAi(r, cfg, input, bufs) {
   }
   const wantSchema = r.p.json === 'schema';
   const system = wantSchema ? cfg.systemPrompt : cfg.systemPrompt + JSON_ONLY;
-  const base = Object.assign({ model: cfg.model, messages: [{ role: 'system', content: system }, { role: 'user', content: content }] }, tokenLimit(r.p, r.p.id === 'openai' ? MAX_TOKENS_OPENAI : MAX_TOKENS_OPENAI));
-  let data;
-  try {
-    data = await openaiCall(r, cfg.apiKey, wantSchema ? Object.assign({ response_format: { type: 'json_schema', json_schema: { name: 'grade', strict: true, schema: GRADE_SCHEMA } } }, base) : base);
-  } catch (e) {
-    if (wantSchema && e && e.httpStatus === 400 && /response_format|json_schema|structured/i.test(e.apiMessage || '')) data = await openaiCall(r, cfg.apiKey, Object.assign({}, base, { messages: [{ role: 'system', content: cfg.systemPrompt + JSON_ONLY }, base.messages[1]] }));
-    else throw e;
-  }
+  const base = Object.assign({ model: cfg.model, messages: [{ role: 'system', content: system }, { role: 'user', content: content }] }, tokenLimit(r.p, MAX_TOKENS_OPENAI));
+  const data = await openaiJson(r, cfg, base, GRADE_SCHEMA, 'grade', cfg.systemPrompt + JSON_ONLY);
   const ch = data.choices[0];
   if ((ch.message && ch.message.refusal) || ch.finish_reason === 'content_filter') throw new AiError('AI_REFUSED', 'AI 拒绝处理这次内容，没有给出评分。请检查文件，或稍后重试。');
   if (ch.finish_reason === 'length') throw new AiError('AI_TRUNCATED', 'AI 的回答被截断了，没有得到评分。请重试。');
@@ -291,6 +326,23 @@ async function gradeOpenAi(r, cfg, input, bufs) {
   res.inputTokens = data.usage && data.usage.prompt_tokens;
   res.outputTokens = data.usage && data.usage.completion_tokens;
   return res;
+  } finally { if (uploaded.length) await deepseekDelete(r, cfg.apiKey, uploaded); }
+}
+
+// 发一次 OpenAI 兼容的请求并要求 JSON：schema 模式（OpenAI）、json_object 模式（DeepSeek）或只靠提示语；
+// 模型/服务不支持 response_format 时去掉它重试一次；json_object 模式下返回空内容也重试一次（DeepSeek 文档说明的情形）
+async function openaiJson(r, cfg, base, schema, name, textModeSystem) {
+  const mode = r.p.json;
+  const withFormat = mode === 'schema' ? Object.assign({ response_format: { type: 'json_schema', json_schema: { name, strict: true, schema } } }, base)
+    : mode === 'object' ? Object.assign({ response_format: { type: 'json_object' } }, base) : base;
+  const plain = () => Object.assign({}, base, { messages: [{ role: 'system', content: textModeSystem }, base.messages[1]] });
+  let data;
+  try { data = await openaiCall(r, cfg.apiKey, withFormat); } catch (e) {
+    if (mode !== 'prompt' && e && e.httpStatus === 400 && /response_format|json_schema|json_object|structured/i.test(e.apiMessage || '')) data = await openaiCall(r, cfg.apiKey, plain());
+    else throw e;
+  }
+  if (mode === 'object' && !openaiText(data).trim() && data.choices[0].finish_reason === 'stop') data = await openaiCall(r, cfg.apiKey, plain());
+  return data;
 }
 
 /* ---------- 通用：发一段文字，要求返回一个 JSON 对象（写作板块用） ---------- */
@@ -321,13 +373,9 @@ async function askJson(cfg, { system, user, schema, maxTokens }) {
     text = anthropicText(data); model = data.model; usage = { i: data.usage && data.usage.input_tokens, o: data.usage && data.usage.output_tokens };
   } else {
     const wantSchema = r.p.json === 'schema';
-    const msgs = (sys) => [{ role: 'system', content: sys }, { role: 'user', content: user }];
-    const base = Object.assign({ model: cfg.model, messages: msgs(wantSchema ? system : textMode) }, tokenLimit(r.p, limit));
-    let data;
-    try { data = await openaiCall(r, cfg.apiKey, wantSchema ? Object.assign({ response_format: { type: 'json_schema', json_schema: { name: 'result', strict: true, schema } } }, base) : base); } catch (e) {
-      if (wantSchema && e && e.httpStatus === 400 && /response_format|json_schema|structured/i.test(e.apiMessage || '')) data = await openaiCall(r, cfg.apiKey, Object.assign({}, base, { messages: msgs(textMode) }));
-      else throw e;
-    }
+    const base = Object.assign({ model: cfg.model, messages: [{ role: 'system', content: wantSchema ? system : textMode }, { role: 'user', content: user }] }, tokenLimit(r.p, limit));
+    if (r.p.id === 'deepseek') base.thinking = { type: 'disabled' }; // 写作建议要快：不开“思考”
+    const data = await openaiJson(r, cfg, base, schema, 'result', textMode);
     const ch = data.choices[0];
     if ((ch.message && ch.message.refusal) || ch.finish_reason === 'content_filter') throw new AiError('AI_REFUSED', 'AI 拒绝处理这次内容。请稍后重试。');
     if (ch.finish_reason === 'length') throw new AiError('AI_TRUNCATED', 'AI 的回答被截断了。请重试。');

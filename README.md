@@ -24,7 +24,7 @@ deploy/               Caddy 配置、systemd 服务、安装/更新/备份脚本
 docs/                 DATA_MODEL.md、API.md
 tests/                Playwright 测试与截图
 ```
-后台只用 Node.js 自带功能（`node:sqlite`、`crypto`、`http`），运行时 npm 依赖只有一个：`unpdf`（把 PDF 里的文字提取出来，给 DeepSeek 等只能读文字的 AI 模型用）；服务器上更新时 `deploy/update.sh` 会自动执行 `npm ci --omit=dev` 安装它；需要 Node.js 22.13 或更高。
+后台只用 Node.js 自带功能（`node:sqlite`、`crypto`、`http`），运行时 npm 依赖只有一个：`unpdf`（把 PDF 里的文字提取出来，给只能读文字的 AI 模型用（如 DeepSeek 的 deepseek-v4-pro、没有勾选“能读 PDF”的自定义服务商））；服务器上更新时 `deploy/update.sh` 会自动执行 `npm ci --omit=dev` 安装它；需要 Node.js 22.13 或更高。
 
 ## 本地运行
 ```bash
@@ -67,7 +67,7 @@ npm start                              # 然后访问 http://localhost:3000/
 - AI 出错（密钥错误、模型不存在、额度不足、服务忙、超时、拒绝、回答格式不对…）时，会在这道题下面显示可读的错误，不改动任何评分；成功和失败都有记录。每个督导者每小时最多 60 次请求（`AI_MAX_PER_HOUR` 可调），同一道题同时只能有一个请求在进行。
 - **隐私**：这三份材料会从你的服务器发送到你选择的 AI 服务商处理（Claude→Anthropic，GPT→OpenAI，DeepSeek→DeepSeek，自定义→你填的地址；这些服务器多在境外），学生的答题内容和题目文件会离开本服务器。请确认你有权这样处理这些材料（尤其是 College Board 的内容），并已告知学生和家长。服务器必须能出站访问所选服务商的接口（443），例如 `api.anthropic.com`、`api.openai.com`、`api.deepseek.com`。
 - 各服务商都用 Node 自带的 `fetch` 直接调用，没有安装各家 SDK：Claude 用 Messages API（`anthropic-version: 2026-10-21`，PDF 用 `document` 内容块，`output_config.format` 约束返回 `{score, feedback}`）；GPT 用 Chat Completions（PDF 用 `file` 内容块，`response_format` json_schema）；DeepSeek 和自定义服务商用 Chat Completions，返回格式靠提示语约束并容错解析。
-- **PDF 的处理**：Claude、GPT 能直接读 PDF，原样发送；DeepSeek 只能读文字，服务器先用 `unpdf` 提取 PDF 里的文字再发送。**纯扫描图片的 PDF 提取不出文字，会明确提示失败**（建议改用 Claude/GPT，或提供含文字的 PDF）。自定义服务商可勾选“能直接读 PDF”。
+- **PDF 的处理**：Claude、GPT 能直接读 PDF，原样发送；**DeepSeek 的 `deepseek-flash`（默认）能读 PDF**：服务器先把 PDF 逐个上传到 DeepSeek 的文件接口解析（`purpose=text_recognition`，只取文字，含扫描件里的文字识别），聊天里用 `file_id` 引用，评分后**立即删除**这些文件；JSON 用 `json_object` 模式并带格式示例，返回空白会自动重试一次；写作建议关闭“思考”以求快。DeepSeek 的其他模型（如 `deepseek-v4-pro`，不能看文件）和没有勾选“能读 PDF”的自定义服务商，由服务器先用 `unpdf` 提取 PDF 里的文字再发送，**纯扫描图片的 PDF 提取不出文字，会明确提示失败**。自定义服务商可勾选“能直接读 PDF”。
 - 自定义服务商的接口地址必须是 https 公网地址（不能指向本机/内网，不能带账号密码）。
 
 ## 时区

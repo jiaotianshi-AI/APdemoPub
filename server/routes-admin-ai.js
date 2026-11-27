@@ -19,8 +19,9 @@ function providerView(id) {
   try { host = base ? new URL(base).host : ''; } catch (e) { host = ''; }
   return {
     id, label: def.label, custom: !!def.custom,
-    pdfMode: def.pdf, // native 能直接读 PDF；text 先提取文字；configurable 由管理员勾选
-    pdfNative: def.pdf === 'native' ? true : def.pdf === 'text' ? false : c.pdfNative,
+    pdfMode: def.pdf, // native 能直接读 PDF；files 按模型（DeepSeek：deepseek-flash 走文件接口读 PDF，其他模型提取文字）；text 先提取文字；configurable 由管理员勾选
+    nativePattern: def.pdf === 'files' ? def.filesModelPattern : null,
+    pdfNative: def.pdf === 'native' ? true : def.pdf === 'files' ? new RegExp(def.filesModelPattern).test(c.model || def.defaultModel) : def.pdf === 'configurable' ? c.pdfNative : false,
     defaultModel: def.defaultModel, suggestedModels: def.models,
     model: c.model || def.defaultModel,
     hasKey: !!c.apiKey, keyHint: settings.keyHint(c.apiKey),

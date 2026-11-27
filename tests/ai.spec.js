@@ -79,7 +79,7 @@ test("初始状态：默认模型、没有密钥、默认系统提示语", async
   const a0 = prov(s, "anthropic");
   expect([s.provider, a0.model, a0.hasKey, a0.keyHint, s.isDefaultPrompt]).toEqual(["anthropic", "claude-opus-5-5", false, null, true]);
   expect(s.providers.map((p) => p.id)).toEqual(["anthropic", "openai", "deepseek", "custom"]);
-  expect(s.providers.map((p) => p.pdfMode)).toEqual(["native", "native", "text", "configurable"]);
+  expect(s.providers.map((p) => p.pdfMode)).toEqual(["native", "native", "files", "configurable"]);
   expect(s.systemPrompt).toBe(s.defaultSystemPrompt);
   expect(s.systemPrompt).toContain("判分标准");
   expect(a0.suggestedModels.map((m) => m.id)).toContain("claude-opus-5-5");
@@ -725,8 +725,11 @@ test("切换服务商：各服务商的模型和密钥分别保存；保存后�
   expect(s.provider).toBe("openai");
   expect([prov(s, "openai").keyHint, prov(s, "openai").pdfNative, prov(s, "openai").host]).toEqual(["…0001", true, "127.0.0.1:8766"]);
   expect(prov(s, "anthropic").hasKey).toBe(true); // 另一家的密钥还在
-  s = await (await putAi(admin, { provider: "deepseek", model: "deepseek-chat", apiKey: DKEY })).json();
-  expect([s.provider, prov(s, "deepseek").pdfNative, prov(s, "deepseek").pdfMode]).toEqual(["deepseek", false, "text"]);
+  s = await (await putAi(admin, { provider: "deepseek", model: "deepseek-flash", apiKey: DKEY })).json();
+  expect([s.provider, prov(s, "deepseek").pdfNative, prov(s, "deepseek").pdfMode]).toEqual(["deepseek", true, "files"]); // deepseek-flash 能读 PDF
+  s = await (await putAi(admin, { provider: "deepseek", model: "deepseek-v4-pro" })).json();
+  expect(prov(s, "deepseek").pdfNative).toBe(false); // 其他模型只读文字
+  await putAi(admin, { provider: "deepseek", model: "deepseek-flash" }); // 恢复默认模型，避免影响后面的用例
   expect(JSON.stringify(s)).not.toContain(OKEY);
   expect(JSON.stringify(s)).not.toContain(DKEY);
   const { db } = require("../server/db");
@@ -785,19 +788,20 @@ test("OpenAI（GPT）：用 Bearer 密钥调用 chat/completions；PDF 以 file 
   await admin.dispose();
 });
 
-test("DeepSeek：PDF 在服务器上提取文字后以纯文字发送（没有 file 块、没有 response_format）；max_tokens 不超过 8000", async ({ playwright, baseURL }) => {
+test("DeepSeek（deepseek-v4-pro，只读文字）：PDF 在服务器上提取文字后以纯文字发送，不上传文件；用 json_object 模式", async ({ playwright, baseURL }) => {
   const admin = await adminCtx(playwright, baseURL);
-  await putAi(admin, { provider: "deepseek", model: "deepseek-chat", apiKey: DKEY, systemPrompt: "" });
+  await putAi(admin, { provider: "deepseek", model: "deepseek-v4-pro", apiKey: DKEY, systemPrompt: "" });
   const t = await (await admin.post("/api/admin/ai/test", { headers: H, data: { provider: "deepseek" } })).json();
   expect([t.ok, t.provider]).toEqual([true, "deepseek"]);
   const s = await scenario(playwright, baseURL, { answerTexts: ["我的回答 SCORE=4"], real: true });
   await resetMock(admin);
   const r = await score(s);
   expect(r.status(), await r.text()).toBe(200);
-  expect((await r.json()).result).toMatchObject({ score: 4, model: "deepseek-chat" });
+  expect((await r.json()).result).toMatchObject({ score: 4, model: "deepseek-v4-pro" });
   const [seen] = await reqs(admin);
-  expect([seen.path, seen.auth, seen.maxTokens, seen.hasResponseFormat, seen.maxCompletionTokens]).toEqual(["/deepseek/chat/completions", "Bearer " + DKEY, 8000, false, undefined]);
+  expect([seen.path, seen.auth, seen.maxTokens, seen.responseFormat, seen.maxCompletionTokens]).toEqual(["/deepseek/chat/completions", "Bearer " + DKEY, 16000, { type: "json_object" }, undefined]);
   expect(seen.plain).toBe(true);
+  expect((await reqs(admin)).some((x) => x.path === "/deepseek/files")).toBe(false); // 不上传文件
   expect(seen.blocks.some((b) => b.type === "file")).toBe(false);
   const text = seen.blocks[0].text;
   expect(text).toContain("QUESTION-PDF-1 Explain the topic in detail please");
@@ -840,6 +844,62 @@ test("DeepSeek：PDF 在服务器上提取文字后以纯文字发送（没有 f
   await admin.dispose();
 });
 
+test("DeepSeek（deepseek-flash）：用文件接口读 PDF——先上传解析（purpose 在 file 之前、text_recognition），聊天里用 file_id 引用，用完立即删除", async ({ playwright, baseURL }) => {
+  const admin = await adminCtx(playwright, baseURL);
+  await putAi(admin, { provider: "deepseek", model: "deepseek-flash", apiKey: DKEY, systemPrompt: "" });
+  const t = await (await admin.post("/api/admin/ai/test", { headers: H, data: { provider: "deepseek" } })).json();
+  expect([t.ok, t.model]).toEqual([true, "deepseek-flash"]);
+  expect((await reqs(admin)).pop().thinking).toEqual({ type: "disabled" });
+  const s = await scenario(playwright, baseURL, { answerTexts: ["我的回答 SCORE=4"] });
+  await resetMock(admin);
+  const r = await score(s);
+  expect(r.status(), await r.text()).toBe(200);
+  expect((await r.json()).result).toMatchObject({ score: 4, model: "deepseek-flash" });
+  const seen = await reqs(admin);
+  const uploads = seen.filter((x) => x.path === "/deepseek/files" && x.method === "POST");
+  expect(uploads.map((u) => u.filename)).toEqual(["question.pdf", "rubric.pdf"]);          // 文字回答：只传题目和判分标准
+  expect(uploads.every((u) => u.order.join() === "purpose,file" && u.purpose === "text_recognition" && u.auth === "Bearer " + DKEY)).toBe(true);
+  const chat = seen.find((x) => x.path === "/deepseek/chat/completions");
+  const fileBlocks = chat.blocks.filter((b) => b.type === "file");
+  expect(fileBlocks.map((f) => [f.known, f.filename])).toEqual([[true, "question.pdf"], [true, "rubric.pdf"]]); // 用 file_id 引用，没有内联 base64
+  expect(chat.blocks.some((b) => b.type === "file" && b.prefix)).toBe(false);
+  expect(chat.blocks.find((b) => b.text && b.text.includes("<student_answer>")).text).toBe("<student_answer>\n我的回答 SCORE=4\n</student_answer>");
+  expect([chat.responseFormat, chat.maxTokens]).toEqual([{ type: "json_object" }, 16000]);
+  // 用完立即删除（上传了几个就删几个）
+  const deletes = seen.filter((x) => x.method === "DELETE");
+  expect(deletes).toHaveLength(2);
+
+  // 回答 PDF：三个文件
+  const ans = await uploadPdf(s.sctx, "a.pdf", "ANSWER-PDF SCORE=2");
+  await resetMock(admin);
+  const r2 = await score(s, { answerSource: "pdf", answerFileId: ans.id });
+  expect((await r2.json()).result.score).toBe(2);
+  const seen2 = await reqs(admin);
+  expect(seen2.filter((x) => x.method === "POST" && x.path === "/deepseek/files").map((u) => u.filename)).toEqual(["question.pdf", "answer.pdf", "rubric.pdf"]);
+  expect(seen2.filter((x) => x.method === "DELETE")).toHaveLength(3);
+
+  // 解析失败（无法解析的 PDF）：明确的错误，已上传的也会清理，不调用聊天
+  const s2 = await scenario(playwright, baseURL, { answerTexts: ["x"] });
+  const bad = await uploadPdf(s2.sctx, "bad.pdf", "HTTP504 parse timeout");
+  await s2.sctx.patch(`/api/supervisor/assessments/${s2.asm.id}`, { headers: H, data: { questions: [{ questionFileId: s2.qs[0].id, rubricFileId: bad.id }] } });
+  await resetMock(admin);
+  const r3 = await score(s2, { rubricFileId: bad.id });
+  expect([r3.status(), (await r3.json()).error]).toEqual([504, "AI_TIMEOUT"]);
+  const seen3 = await reqs(admin);
+  expect(seen3.some((x) => x.path === "/deepseek/chat/completions")).toBe(false);
+  expect(seen3.filter((x) => x.method === "DELETE")).toHaveLength(1); // 题目已上传成功，随后清理
+
+  // JSON 模式返回空白：自动重试一次（不带 response_format）
+  const s3 = await scenario(playwright, baseURL, { answerTexts: ["BLANKJSON SCORE=5"] });
+  await resetMock(admin);
+  const r4 = await score(s3);
+  expect((await r4.json()).result.score).toBe(5);
+  const chats = (await reqs(admin)).filter((x) => x.path === "/deepseek/chat/completions");
+  expect(chats.map((c) => !!c.responseFormat)).toEqual([true, false]);
+  await configure(admin);
+  await admin.dispose();
+});
+
 test("提取文字的单元：损坏的 PDF、文字过长；各种出错情形（OpenAI 兼容）", async () => {
   const ai = require("../server/ai");
   const { textPdf } = require("./helpers");
@@ -875,8 +935,9 @@ test("自定义（OpenAI 兼容）服务商：必须有接口地址；勾选“�
   [seen] = await reqs(admin);
   expect(seen.blocks.filter((b) => b.type === "file")).toHaveLength(2);
   // pdfNative 只对“自定义”有效：对其他服务商被忽略
-  await putAi(admin, { provider: "deepseek", model: "deepseek-chat", apiKey: DKEY, pdfNative: true });
+  await putAi(admin, { provider: "deepseek", model: "deepseek-v4-pro", apiKey: DKEY, pdfNative: true });
   expect(prov(await (await admin.get("/api/admin/ai")).json(), "deepseek").pdfNative).toBe(false);
+  await putAi(admin, { provider: "deepseek", model: "deepseek-flash" }); // 恢复默认模型
   await configure(admin);
   await admin.dispose();
 });
@@ -901,8 +962,11 @@ test("管理页面：切换服务商会换成各自的模型/密钥/说明；自
   await expect(sel.locator("option")).toHaveText(["Anthropic（Claude）", "OpenAI（GPT）", "DeepSeek", "自定义（OpenAI 兼容）"]);
   await expect(page.locator("#base-field")).toBeHidden();
   await sel.selectOption("deepseek");
-  await expect(page.locator("#ai-model")).toHaveValue("deepseek-chat");
+  await expect(page.locator("#ai-model")).toHaveValue("deepseek-flash");
+  await expect(page.locator("#pdf-note")).toContainText("上传到 DeepSeek 解析");
+  await page.fill("#ai-model", "deepseek-v4-pro"); // 换成只读文字的模型：说明随之变化
   await expect(page.locator("#pdf-note")).toContainText("只能读文字");
+  await page.fill("#ai-model", "deepseek-flash");
   await expect(page.locator("#provider-hint")).toContainText("保存后将改用它判分");
   await sel.selectOption("openai");
   await expect(page.locator("#pdf-note")).toContainText("直接读取 PDF");
@@ -1130,14 +1194,14 @@ test("写作：GPT 和 DeepSeek 也能用（只发文字，用各自的接口格
   expect([seen.path, seen.auth, seen.responseFormat.type, seen.maxCompletionTokens]).toEqual(["/openai/v1/chat/completions", "Bearer " + OKEY, "json_schema", 4000]);
   expect(seen.blocks.some((b) => b.type === "file")).toBe(false);
   await ctx.dispose();
-  await putAi(admin, { provider: "deepseek", model: "deepseek-chat", apiKey: DKEY });
+  await putAi(admin, { provider: "deepseek", model: "deepseek-flash", apiKey: DKEY });
   ({ ctx } = await writingScenario(playwright, baseURL));
   await resetMock(admin);
   d = await (await advice(ctx, { text: SHORT, answers: [] })).json();
   expect(d.session.turns[0].questions).toHaveLength(2);
   [seen] = await reqs(admin);
-  expect([seen.path, seen.hasResponseFormat, seen.maxTokens]).toEqual(["/deepseek/chat/completions", false, 4000]);
-  expect(seen.system).toContain("JSON schema"); // 文字模式：把格式要求写进提示语
+  expect([seen.path, seen.responseFormat, seen.maxTokens, seen.thinking]).toEqual(["/deepseek/chat/completions", { type: "json_object" }, 4000, { type: "disabled" }]); // 写作建议要快：关闭“思考”
+  expect(seen.system).toContain("JSON schema"); // 同时把格式要求写进提示语（DeepSeek 的 json_object 模式要求提示语里有 json 字样和格式示例）
   await ctx.dispose();
   await configure(admin);
   await admin.dispose();

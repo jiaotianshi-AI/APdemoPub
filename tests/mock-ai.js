@@ -44,6 +44,56 @@ function writingJson(allText) {
   return JSON.stringify({ score, feedback: `Nice work! Round ${round}: your essay has ${w} words.`, done, questions, safety_flag: allText.includes("FLAG") });
 }
 
+// DeepSeek 文件接口（POST /deepseek/files 上传并解析、DELETE /deepseek/files/:id 删除）：记录收到的字段顺序、purpose 和文件，聊天里用 file_id 引用
+const dsFiles = new Map();
+let dsNext = 1;
+function parseMultipart(contentType, buf) {
+  const m = /boundary=(?:"([^"]+)"|([^;]+))/.exec(contentType || "");
+  if (!m) return [];
+  const sep = Buffer.from("--" + (m[1] || m[2]));
+  const parts = [];
+  let pos = buf.indexOf(sep);
+  while (pos >= 0) {
+    const next = buf.indexOf(sep, pos + sep.length);
+    if (next < 0) break;
+    const chunk = buf.subarray(pos + sep.length + 2, next - 2); // 去掉前后的 CRLF
+    const he = chunk.indexOf("\r\n\r\n");
+    const head = chunk.subarray(0, he).toString("latin1");
+    parts.push({ name: (/name="([^"]*)"/.exec(head) || [])[1], filename: (/filename="([^"]*)"/.exec(head) || [])[1], body: chunk.subarray(he + 4) });
+    pos = next;
+  }
+  return parts;
+}
+function deepseekFiles(req, res) {
+  const key = "sk-deepseek-test-key-0001";
+  const chunks = [];
+  req.on("data", (c) => chunks.push(c));
+  req.on("end", () => {
+    const buf = Buffer.concat(chunks);
+    if (req.method === "DELETE") {
+      const id = decodeURIComponent(req.url.split("/").pop());
+      requests.push({ path: "/deepseek/files", method: "DELETE", id, auth: req.headers.authorization });
+      if (req.headers.authorization !== "Bearer " + key) return reply(res, 401, { error: { message: "Authentication Fails" } });
+      const had = dsFiles.delete(id);
+      return reply(res, had ? 200 : 404, had ? { id, object: "file", deleted: true } : { error: { message: "not found" } });
+    }
+    const parts = parseMultipart(req.headers["content-type"], buf);
+    const file = parts.find((p) => p.name === "file");
+    const purpose = (parts.find((p) => p.name === "purpose") || { body: Buffer.alloc(0) }).body.toString();
+    const rec = { path: "/deepseek/files", method: "POST", auth: req.headers.authorization, order: parts.map((p) => p.name), purpose, filename: file && file.filename, bytes: file ? file.body.length : 0 };
+    requests.push(rec);
+    if (req.headers.authorization !== "Bearer " + key) return reply(res, 401, { error: { message: "Authentication Fails" } });
+    if (parts.map((p) => p.name).join() !== "purpose,file") return reply(res, 400, { error: { message: "purpose must be sent before file" } });
+    if (!["text_recognition", "rich_layout_recognition"].includes(purpose)) return reply(res, 400, { error: { message: "invalid purpose for a document" } });
+    if (file.body.subarray(0, 5).toString("latin1") !== "%PDF-") return reply(res, 400, { error: { message: "The file cannot be parsed" } });
+    const text = file.body.toString("latin1");
+    if (text.includes("HTTP504")) return reply(res, 504, { error: { message: "parsing timeout" } });
+    const id = "file-api-" + String(dsNext++).padStart(16, "0");
+    dsFiles.set(id, { name: file.filename, text });
+    return reply(res, 200, { id, object: "file", bytes: file.body.length, created_at: 1762790000, filename: file.filename, purpose });
+  });
+}
+
 const CHAT = {
   "/openai/v1/chat/completions": { name: "openai", key: "sk-openai-test-key-0001" },
   "/deepseek/chat/completions": { name: "deepseek", key: "sk-deepseek-test-key-0001" },
@@ -57,7 +107,10 @@ function summarizeChat(req, body) {
     if (m.role !== "user") continue;
     if (typeof m.content === "string") { plain = true; blocks.push({ type: "text", text: m.content }); } else for (const b of m.content || []) {
       if (b.type === "text") blocks.push({ type: "text", text: b.text });
-      else if (b.type === "file") {
+      else if (b.type === "file" && b.file_id) {
+        const f = dsFiles.get(b.file_id);
+        blocks.push({ type: "file", file_id: b.file_id, known: !!f, filename: f && f.name, text: f ? f.text.slice(0, 200) : "" });
+      } else if (b.type === "file") {
         const d = (b.file && b.file.file_data) || "";
         const raw = Buffer.from(d.replace(/^data:[^,]*,/, ""), "base64");
         blocks.push({ type: "file", filename: b.file && b.file.filename, prefix: d.slice(0, 28), bytes: raw.length, head: raw.subarray(0, 5).toString("latin1"), text: raw.toString("latin1").slice(0, 200) });
@@ -68,7 +121,7 @@ function summarizeChat(req, body) {
   return {
     path: req.url, auth: req.headers.authorization, model: body && body.model, system: sys && sys.content,
     plain, blocks, hasResponseFormat: !!(body && body.response_format), responseFormat: body && body.response_format,
-    maxTokens: body && body.max_tokens, maxCompletionTokens: body && body.max_completion_tokens
+    maxTokens: body && body.max_tokens, maxCompletionTokens: body && body.max_completion_tokens, thinking: body && body.thinking
   };
 }
 function chatReply(req, res, body, cfg) {
@@ -85,6 +138,8 @@ function chatReply(req, res, body, cfg) {
   if (marker("HTTP500")) return reply(res, 500, { error: { message: "internal" } });
   if (marker("HTTP402")) return reply(res, 402, { error: { message: "Insufficient Balance" } });
   const delay = marker("SLOW") ? 1500 : 0;
+  if (marker("BLANKJSON") && body.response_format) return reply(res, 200, done({ content: "   " }), delay); // DeepSeek JSON 模式可能返回空白
+  if (sum.blocks.some((b) => b.type === "file" && b.file_id && !b.known)) return reply(res, 400, { error: { message: "file not found" } });
   if (marker("REFUSE")) return reply(res, 200, done({ content: null, refusal: "我无法协助" }), delay);
   if (marker("TRUNC")) return reply(res, 200, done({ content: '{"score": 4, "feedb' }, "length"), delay);
   if (marker("MALFORMED")) return reply(res, 200, done({ content: "我觉得大概是 4 分" }), delay);
@@ -105,6 +160,7 @@ http.createServer((req, res) => {
   if (req.url === "/__health") return reply(res, 200, { ok: true });
   if (req.url === "/__requests" && req.method === "GET") return reply(res, 200, requests);
   if (req.url === "/__reset" && req.method === "POST") { requests = []; return reply(res, 200, { ok: true }); }
+  if (req.url === "/deepseek/files" || req.url.startsWith("/deepseek/files/")) return deepseekFiles(req, res);
   const chat = CHAT[req.url];
   if ((req.url !== "/v1/messages" && !chat) || req.method !== "POST") return reply(res, 404, err("not_found_error", "not found"));
   const chunks = [];
