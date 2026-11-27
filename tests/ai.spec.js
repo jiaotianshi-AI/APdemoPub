@@ -1191,3 +1191,147 @@ test("写作页（界面）：选题 → 写第一稿 → 请提建议 → 回�
   }
   await admin.dispose();
 });
+
+
+/* ================= 写作设置（管理员）：建议提示语、年级期望、用量 ================= */
+
+const putW = (admin, data) => admin.put("/api/admin/writing", { headers: H, data });
+
+test("写作设置：权限；初始是默认提示语和 14 个年级的默认期望", async ({ playwright, baseURL }) => {
+  const anon = await playwright.request.newContext({ baseURL, storageState: ANON });
+  expect((await anon.get("/api/admin/writing")).status()).toBe(401);
+  expect((await anon.get("/admin/writing", { maxRedirects: 0 })).status()).toBe(302);
+  for (const role of ["student", "supervisor", "support"]) {
+    const c = await playwright.request.newContext({ baseURL, storageState: state(role) });
+    expect((await c.get("/api/admin/writing")).status(), role).toBe(403);
+    expect((await c.put("/api/admin/writing", { headers: H, data: { prompt: "x" } })).status(), role).toBe(403);
+    expect((await c.get("/admin/writing", { maxRedirects: 0 })).status(), role).toBe(302);
+    expect((await c.get("/assets/js/admin-writing.js")).status(), role).toBe(403);
+    await c.dispose();
+  }
+  const admin = await adminCtx(playwright, baseURL);
+  const v = await (await admin.get("/api/admin/writing")).json();
+  expect([v.isDefaultPrompt, v.prompt === v.defaultPrompt]).toEqual([true, true]);
+  expect(v.prompt).toContain("5W");
+  expect(v.standards.map((s) => s.code)).toEqual(["PK", "K", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"]);
+  expect(v.standards.every((s) => s.isDefault && s.text && s.text === s.defaultText)).toBe(true);
+  expect(v.usage).toMatchObject({ days: 30 });
+  await admin.dispose(); await anon.dispose();
+});
+
+test("写作设置：保存校验；自定义提示语和年级期望会用在下一次“请提建议”；清空/与默认相同 = 恢复默认；审计日志不含内容", async ({ playwright, baseURL }) => {
+  const admin = await adminCtx(playwright, baseURL);
+  await configure(admin);
+  expect((await putW(admin, {})).status()).toBe(400);
+  for (const bad of [{ prompt: 5 }, { prompt: "x".repeat(20001) }, { standards: [] }, { standards: "x" }, { standards: { "13": "x" } }, { standards: { "4": 5 } }, { standards: { "4": "x".repeat(1001) } }]) expect((await putW(admin, bad)).status(), JSON.stringify(bad)).toBe(422);
+  const custom = "You are a CUSTOM-COACH-" + uid("c") + ". Score 1-5 and ask 5W questions.";
+  const std4 = "GRADE-4-STANDARD-" + uid("g");
+  let v = await (await putW(admin, { prompt: custom, standards: { "4": std4 } })).json();
+  expect([v.isDefaultPrompt, v.prompt]).toEqual([false, custom]);
+  expect(v.standards.find((s) => s.code === "4")).toMatchObject({ text: std4, isDefault: false });
+  expect(v.standards.find((s) => s.code === "5").isDefault).toBe(true); // 只改了 4 年级
+  // 下一次请求：系统提示语 = 自定义的；用户消息里带了该年级的期望
+  const { ctx } = await writingScenario(playwright, baseURL, { grade: "4" });
+  await resetMock(admin);
+  expect((await advice(ctx, { text: SHORT, answers: [] })).status()).toBe(200);
+  const [seen] = await reqs(admin);
+  expect(seen.system).toBe(custom);
+  expect(seen.blocks[0].text).toContain("Expectation for this grade: " + std4);
+  // 别的年级用默认期望
+  const g8 = await writingScenario(playwright, baseURL, { grade: "8" });
+  await resetMock(admin);
+  await advice(g8.ctx, { text: SHORT, answers: [] });
+  expect((await reqs(admin))[0].blocks[0].text).toContain("Expectation for this grade: " + require("../server/settings").DEFAULT_GRADE_STANDARDS[8]);
+  // 恢复默认：清空；或与默认相同
+  v = await (await putW(admin, { prompt: "", standards: { "4": "" } })).json();
+  expect([v.isDefaultPrompt, v.standards.find((s) => s.code === "4").isDefault]).toEqual([true, true]);
+  await putW(admin, { prompt: custom, standards: { "4": std4 } });
+  v = await (await putW(admin, { prompt: v.defaultPrompt, standards: { "4": v.standards.find((s) => s.code === "4").defaultText } })).json();
+  expect([v.isDefaultPrompt, v.standards.find((s) => s.code === "4").isDefault]).toEqual([true, true]);
+  // 审计日志：只记录改了哪几项
+  const { db } = require("../server/db");
+  const log = JSON.stringify(db.prepare("SELECT action, detail FROM audit_log WHERE action = 'update_writing_settings'").all());
+  expect(log).toContain("prompt,standards");
+  expect(log).not.toContain("CUSTOM-COACH");
+  expect(log).not.toContain("GRADE-4-STANDARD");
+  await ctx.dispose(); await g8.ctx.dispose(); await admin.dispose();
+});
+
+test("写作设置：AI 用量——每一轮记录模型、服务商和 token；按学生统计；失败次数；安全标记次数", async ({ playwright, baseURL }) => {
+  const admin = await adminCtx(playwright, baseURL);
+  await configure(admin);
+  const before = (await (await admin.get("/api/admin/writing")).json()).usage;
+  const { ctx, u } = await writingScenario(playwright, baseURL);
+  await advice(ctx, { text: SHORT, answers: [] });
+  await advice(ctx, { text: "HTTP500 " + MID, answers: ["a"] });            // 失败一次（作文有实质变化，才会真的调用 AI）
+  await advice(ctx, { text: "FLAG " + MID, answers: ["a"] });               // 安全标记一次
+  const after = (await (await admin.get("/api/admin/writing")).json()).usage;
+  expect(after.rounds - before.rounds).toBe(2);
+  expect(after.inputTokens - before.inputTokens).toBe(2400);                 // 模拟服务每次返回 1200 输入 / 300 输出
+  expect(after.outputTokens - before.outputTokens).toBe(600);
+  expect(after.flaggedRounds - before.flaggedRounds).toBe(1);
+  expect(after.unreviewedFlags - before.unreviewedFlags).toBe(1);
+  expect(after.failedCalls - before.failedCalls).toBe(1);
+  expect(after.byStudent.find((x) => x.username === u.username)).toMatchObject({ rounds: 2, inputTokens: 2400, outputTokens: 600 });
+  expect(after.byDay[0].rounds).toBeGreaterThanOrEqual(2);
+  const { db } = require("../server/db");
+  const t = db.prepare("SELECT model, provider, flag FROM writing_turns WHERE session_id = (SELECT id FROM writing_sessions WHERE student_id = ?) ORDER BY round").all(u.id);
+  expect(t).toEqual([{ model: "claude-opus-5-5", provider: "anthropic", flag: 0 }, { model: "claude-opus-5-5", provider: "anthropic", flag: 1 }]);
+  await ctx.dispose(); await admin.dispose();
+});
+
+test("写作设置页（界面）：显示默认提示语和 14 个年级；修改并保存；恢复默认；用量；无障碍", async ({ page, playwright, baseURL }) => {
+  const admin = await adminCtx(playwright, baseURL);
+  await configure(admin);
+  await putW(admin, { prompt: "", standards: Object.fromEntries(["PK", "K", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"].map((c) => [c, ""])) });
+  await loginAs(page, "e2e_admin");
+  await page.goto("/admin");
+  await page.getByRole("link", { name: "写作设置" }).click();
+  await expect(page).toHaveURL(/\/admin\/writing$/);
+  await expect(page.locator("h1")).toHaveText("写作设置");
+  await expect(page.locator(".nav-link[aria-current=page]")).toHaveText("写作设置");
+  await expect(page.locator("#w-prompt-hint")).toHaveText("当前使用的是默认提示语。");
+  await expect(page.locator("#w-prompt")).toHaveValue(/5W/);
+  await expect(page.locator("#w-standards textarea")).toHaveCount(14);
+  await expect(page.locator("#w-standards label").first()).toHaveText("Pre-K（学前）");
+  await expect(page.locator("#u-summary")).toContainText("最近 30 天");
+  // 修改提示语和 Grade 4 的期望
+  const custom = "UI-CUSTOM-PROMPT-" + uid("p");
+  await page.fill("#w-prompt", custom);
+  await page.fill("#std-4", "UI-GRADE-4");
+  await page.click("#w-save");
+  await expect(page.locator("#w-save-msg")).toHaveText("已保存。");
+  await expect(page.locator("#w-prompt-hint")).toHaveText("当前使用的是自定义提示语。");
+  await expect(page.locator("#w-standards label", { hasText: "Grade 4" })).toHaveText("Grade 4（已自定义）");
+  await page.reload();
+  await expect(page.locator("#w-prompt")).toHaveValue(custom);
+  await expect(page.locator("#std-4")).toHaveValue("UI-GRADE-4");
+  // 恢复默认提示语；清空 Grade 4 的期望
+  await page.click("#w-prompt-reset");
+  await expect(page.locator("#w-prompt")).toHaveValue(/5W/);
+  await page.fill("#std-4", "");
+  await page.click("#w-save");
+  await expect(page.locator("#w-save-msg")).toHaveText("已保存。");
+  await expect(page.locator("#w-prompt-hint")).toHaveText("当前使用的是默认提示语。");
+  await expect(page.locator("#std-4")).not.toHaveValue("");
+  const res = await new AxeBuilder({ page }).analyze();
+  expect(res.violations.filter((v) => ["serious", "critical"].includes(v.impact)).map((v) => v.id + ": " + v.nodes.map((n) => n.target.join(" ")).join("|"))).toEqual([]);
+  await admin.dispose();
+});
+
+test("写作页：AI 标记了安全内容时，孩子看到一条温和的固定提示（找信任的大人聊聊）", async ({ page, playwright, baseURL }) => {
+  const admin = await adminCtx(playwright, baseURL);
+  await configure(admin);
+  const u = await makeWritingStudent({ startDate: new Date().toISOString().slice(0, 10) });
+  await page.request.post("/api/login", { headers: H, data: { username: u.username, password: PASSWORD } });
+  await page.goto("/writing");
+  await page.locator(".topic-btn").first().click();
+  await page.fill("#essay", "FLAG " + SHORT);
+  await page.getByRole("button", { name: "Give me some advice" }).click();
+  await expect(page.locator(".care-note")).toHaveText("If anything is worrying you, please talk to a parent or a teacher you trust.");
+  await page.fill("#essay", "FLAG " + MID);
+  await page.fill("#ans-0", "my sister");
+  await page.getByRole("button", { name: "Give me some advice" }).click();
+  await expect(page.locator(".advice-card .round-no")).toHaveText("Round 2");
+  await admin.dispose();
+});

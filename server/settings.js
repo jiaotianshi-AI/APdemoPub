@@ -74,6 +74,42 @@ function getPrompt() {
   return { systemPrompt: prompt ? prompt.value : DEFAULT_SYSTEM_PROMPT, customPrompt: !!prompt };
 }
 
+// 各年级的写作期望（发给 AI，作为评分尺度）。管理员可以逐个年级修改；留空 = 恢复默认
+const DEFAULT_GRADE_STANDARDS = {
+  PK: 'Says or writes one or two very short sentences about the topic. Simple familiar words. Spelling, capital letters and punctuation are not expected.',
+  K: 'One or two simple sentences about the topic, with a few familiar words spelled by sound. A capital letter at the start or a full stop is a bonus.',
+  1: 'Two to four simple sentences about one idea. Capital letters and end punctuation are starting to appear. Spelling of common words is mostly right.',
+  2: 'Three to five sentences with a beginning and an ending and a few details (who, where, when). Mostly correct simple spelling, capital letters and end punctuation.',
+  3: 'A short paragraph of five to seven sentences with a clear topic and some details. Basic capitalization and punctuation are usually correct.',
+  4: 'A paragraph of six to ten sentences (or two short paragraphs) with a clear beginning, middle and end, specific details, and some variety in how sentences start.',
+  5: 'Two to three paragraphs with a main idea supported by details and examples. Uses linking words such as first, then, because. Few spelling and punctuation errors.',
+  6: 'Organized paragraphs with a clear main idea, supporting reasons or examples, and transitions. Descriptive word choice. Mostly correct grammar and punctuation.',
+  7: 'A well organized piece with a clear point of view or purpose, several supporting reasons with examples, smooth transitions, and varied sentences. Few errors.',
+  8: 'A multi-paragraph piece with an introduction, developed body paragraphs with evidence or vivid detail, and a conclusion. Precise word choice and mostly correct conventions.',
+  9: 'A clear multi-paragraph essay with a focused thesis or purpose, relevant evidence, logical organization, and controlled sentence structure. Few errors.',
+  10: 'A coherent essay with a clear thesis, well chosen evidence explained in the writer\'s own words, effective transitions, and a strong conclusion. Precise vocabulary and accurate conventions.',
+  11: 'A sophisticated, well developed essay with a thoughtful thesis, analysis rather than just description, varied syntax, and an appropriate voice. Very few errors.',
+  12: 'A polished essay with a nuanced thesis, convincing and well analyzed evidence, a clear line of reasoning, and a consistent, confident voice. Conventions nearly error-free.'
+};
+function getGradeStandards() {
+  const r = get('writing_grade_standards');
+  let custom = {};
+  if (r) { try { custom = JSON.parse(r.value) || {}; } catch (e) { custom = {}; } }
+  const out = {};
+  for (const code of Object.keys(DEFAULT_GRADE_STANDARDS)) {
+    const c = typeof custom[code] === 'string' && custom[code].trim() ? custom[code] : null;
+    out[code] = { text: c || DEFAULT_GRADE_STANDARDS[code], custom: !!c };
+  }
+  return out;
+}
+function setGradeStandards(map, by) { // map: { code: text }；空字符串 = 恢复默认
+  const r = get('writing_grade_standards');
+  let custom = {};
+  if (r) { try { custom = JSON.parse(r.value) || {}; } catch (e) { custom = {}; } }
+  for (const [code, text] of Object.entries(map)) { if (text && text.trim()) custom[code] = text.trim(); else delete custom[code]; }
+  if (Object.keys(custom).length) set('writing_grade_standards', JSON.stringify(custom), by); else remove('writing_grade_standards');
+}
+
 function getWritingPrompt() {
   const r = get('writing_system_prompt');
   return { prompt: r ? r.value : DEFAULT_WRITING_PROMPT, custom: !!r };
@@ -97,6 +133,6 @@ function lastUpdated() {
 function keyHint(apiKey) { return apiKey ? '…' + apiKey.slice(-4) : null; }
 
 module.exports = {
-  DEFAULT_SYSTEM_PROMPT, DEFAULT_WRITING_PROMPT, getWritingPrompt, activeConfig, PROVIDER_IDS, get, set, remove, activeProvider, getProvider, getPrompt, lastUpdated, keyHint,
+  DEFAULT_SYSTEM_PROMPT, DEFAULT_WRITING_PROMPT, DEFAULT_GRADE_STANDARDS, getGradeStandards, setGradeStandards, getWritingPrompt, activeConfig, PROVIDER_IDS, get, set, remove, activeProvider, getProvider, getPrompt, lastUpdated, keyHint,
   setProviderModel, setProviderKey, clearProviderKey, setProviderBase, setProviderPdfNative, setActiveProvider
 };

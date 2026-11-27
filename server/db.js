@@ -286,6 +286,11 @@ CREATE TABLE IF NOT EXISTS writing_flags (
 );
 `);
 if (startVersion < 8) db.exec('PRAGMA user_version = 8');
+// 9 = 每一轮记录 AI 用量（模型、服务商、token）和安全标记，供管理员查看用量
+for (const [col, ddl] of [['input_tokens', 'INTEGER'], ['output_tokens', 'INTEGER'], ['model', 'TEXT'], ['provider', 'TEXT'], ['flag', 'INTEGER NOT NULL DEFAULT 0']]) {
+  if (!db.prepare('PRAGMA table_info(writing_turns)').all().some((c) => c.name === col)) db.exec(`ALTER TABLE writing_turns ADD COLUMN ${col} ${ddl}`);
+}
+if (startVersion < 9) db.exec('PRAGMA user_version = 9');
  // 2 = 加入每题回答 PDF 与评分；3 = 加入每题权重（都只是新增表，不改旧数据）
 
 // 事务辅助：fn 抛异常则回滚

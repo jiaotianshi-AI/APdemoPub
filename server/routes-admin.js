@@ -255,6 +255,7 @@ function setSubjectDisabled(res, ctx, idText, disabled) {
 }
 
 module.exports = async function adminApi(req, res, pathname, ctx) {
+  if (pathname === '/api/admin/writing') return require('./routes-admin-writing')(req, res, pathname, ctx);
   if (pathname === '/api/admin/ai' || pathname.startsWith('/api/admin/ai/')) return require('./routes-admin-ai')(req, res, pathname, ctx);
   const url = new URL(req.url, 'http://localhost');
   if (pathname === '/api/admin/accounts') {

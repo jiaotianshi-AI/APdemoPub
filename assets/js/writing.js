@@ -10,6 +10,7 @@
       paused: "Writing is paused for now.",
       notDay: "No writing today. Enjoy your day!",
       notYet: "Today's writing opens at ",
+      careNote: "If anything is worrying you, please talk to a parent or a teacher you trust.",
       noPrompts: "There are no topics left. Please ask your parent or teacher to add more.",
       chooseTitle: "Pick a topic for today",
       chooseHelp: "You can write one essay a day. Choose the topic you like best.",
@@ -204,6 +205,7 @@
     if (!t) { host.appendChild(el("p", "lead", T.firstHelp)); return; }
     host.appendChild(roundHead(t));
     host.appendChild(el("p", "feedback", t.feedback));
+    if (t.flag) host.appendChild(el("p", "care-note", T.careNote));
     if (t.questions.length) {
       host.appendChild(el("h3", "", T.questionsTitle));
       var ol = el("ol", "q-list");
@@ -326,7 +328,7 @@
     big.appendChild(el("span", "fs-num", s.finalScore + T.outOf));
     c.appendChild(big);
     var last = lastTurn(s);
-    if (last) { c.appendChild(el("h3", "", T.feedback)); c.appendChild(el("p", "feedback", last.feedback)); }
+    if (last) { c.appendChild(el("h3", "", T.feedback)); c.appendChild(el("p", "feedback", last.feedback)); if (last.flag) c.appendChild(el("p", "care-note", T.careNote)); }
     c.appendChild(progressBlock(s));
     c.appendChild(el("h3", "", T.finalEssay));
     c.appendChild(el("div", "final-essay", s.finalText || s.draft));

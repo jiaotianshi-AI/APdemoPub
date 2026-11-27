@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>后台管理 - 写作设置</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/assets/css/auth.css">
+  <link rel="stylesheet" href="/assets/css/admin.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">Focus · 后台管理<span class="slogan">Focus. Steps. Progress.</span></div>
+      <nav class="admin-nav" aria-label="后台导航">
+        <a href="/admin" class="nav-link">账号管理</a>
+        <a href="/admin/ai" class="nav-link">AI 评分设置</a>
+        <a href="/admin/writing" class="nav-link" aria-current="page">写作设置</a>
+      </nav>
+      <div class="topbar-right">
+        <span class="who" id="whoami"></span>
+        <button type="button" class="btn" id="logout-btn">退出登录</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="admin ai-settings">
+    <h1>写作设置</h1>
+    <p class="muted">写作板块里，孩子每点一次“请提建议”，系统就把<strong>孩子的年级、该年级的写作期望、题目、当前作文和上一轮作文与分数</strong>发给 AI（只发文字，不含用户名）。AI 同时给出 1–5 分、反馈和 5W 问题。使用哪家 AI、模型和密钥，在“AI 评分设置”里选择。</p>
+
+    <form id="writing-form" novalidate>
+      <section class="panel-block" aria-labelledby="prompt-title">
+        <h2 id="prompt-title">1. 建议提示语</h2>
+        <div class="field">
+          <label for="w-prompt">提示语（英文，可编辑）</label>
+          <textarea id="w-prompt" rows="18" spellcheck="false"></textarea>
+          <span class="hint" id="w-prompt-hint"></span>
+        </div>
+        <p class="hint">AI 的输出格式（分数 1–5、反馈、是否 OK、问题、安全标记）和轮次规则（第 1 轮不结束、第 6 轮必须结束）由程序固定，改提示语不会改变这些规则。</p>
+        <div class="row-actions">
+          <button type="button" class="btn" id="w-prompt-reset">恢复默认提示语</button>
+        </div>
+      </section>
+
+      <section class="panel-block" aria-labelledby="std-title">
+        <h2 id="std-title">2. 各年级的写作期望</h2>
+        <p class="hint">评分的尺度是“同年级孩子的期望”，不是绝对水平。每次调用只会把孩子所在年级的那一条发给 AI（英文）。清空某一格并保存，就恢复该年级的默认内容。</p>
+        <div id="w-standards" class="std-list"></div>
+      </section>
+
+      <p id="w-save-msg" class="msg" role="status" hidden></p>
+      <div class="row-actions">
+        <button type="submit" class="btn primary" id="w-save">保存设置</button>
+      </div>
+    </form>
+
+    <section class="panel-block" aria-labelledby="usage-title">
+      <h2 id="usage-title">3. 最近 30 天的 AI 用量</h2>
+      <p id="u-summary" class="msg ok"></p>
+      <div class="table-wrap">
+        <table>
+          <caption class="sr-only">按学生统计的 AI 调用</caption>
+          <thead><tr><th scope="col">学生</th><th scope="col">调用次数（轮）</th><th scope="col">输入 token</th><th scope="col">输出 token</th></tr></thead>
+          <tbody id="u-students"></tbody>
+        </table>
+      </div>
+      <p class="hint">每一轮“请提建议”算一次调用，一篇作文 2–6 次。token 数由 AI 服务商返回，部分服务商可能不返回。</p>
+    </section>
+  </main>
+
+  <script src="/assets/js/page-common.js"></script>
+  <script src="/assets/js/admin-writing.js"></script>
+</body>
+</html>

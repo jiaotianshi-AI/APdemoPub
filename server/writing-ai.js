@@ -30,6 +30,7 @@ function userMessage({ gradeCode, topic, round, maxRounds, minRounds, essay, pre
   const lines = [
     'WRITING_ROUND',
     `Grade: ${grades.forAi(gradeCode) || 'not set'}`,
+    `Expectation for this grade: ${(settings.getGradeStandards()[gradeCode] || {}).text || 'age-appropriate writing'}`,
     `Topic: ${topic}`,
     `Round: ${round} of at most ${maxRounds} (done may only be true from round ${minRounds} on${round >= maxRounds || finish ? '; this is the LAST round (the child chose to finish or the limit is reached), so set done = true and ask no questions' : ''})`
   ];

@@ -41,7 +41,7 @@ function meaningfulChange(prev, cur) {
 const normText = (t) => String(t).replace(/\s+/g, ' ').trim();
 
 function parseJson(s, fallback) { try { return s ? JSON.parse(s) : fallback; } catch (e) { return fallback; } }
-function turnView(t) { return { round: t.round, score: t.score, feedback: t.feedback, questions: parseJson(t.questions, []), answers: parseJson(t.answers, []), done: !!t.done, createdAt: t.created_at }; }
+function turnView(t) { return { round: t.round, score: t.score, feedback: t.feedback, questions: parseJson(t.questions, []), answers: parseJson(t.answers, []), done: !!t.done, flag: !!t.flag, createdAt: t.created_at }; }
 function sessionView(s) {
   const turns = db.prepare('SELECT * FROM writing_turns WHERE session_id = ? ORDER BY round').all(s.id).map(turnView);
   const p = s.prompt_id ? db.prepare('SELECT hint FROM writing_prompts WHERE id = ?').get(s.prompt_id) : null;
@@ -182,8 +182,8 @@ async function round(req, res, ctx, { force }) {
     }
     const now = new Date().toISOString();
     transaction(() => {
-      db.prepare('INSERT INTO writing_turns (session_id, round, essay, score, feedback, questions, done, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(s.id, roundNo, text, r.score, r.feedback, JSON.stringify(r.questions), r.done ? 1 : 0, now);
+      db.prepare('INSERT INTO writing_turns (session_id, round, essay, score, feedback, questions, done, flag, input_tokens, output_tokens, model, provider, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(s.id, roundNo, text, r.score, r.feedback, JSON.stringify(r.questions), r.done ? 1 : 0, r.safety ? 1 : 0, r.inputTokens || null, r.outputTokens || null, r.model || null, r.provider || null, now);
       if (r.done) {
         db.prepare("UPDATE writing_sessions SET status = 'done', final_text = ?, finished_at = ? WHERE id = ?").run(text, now, s.id);
         db.prepare(`INSERT INTO writing_grades (session_id, ai_score, model, provider, updated_at) VALUES (?, ?, ?, ?, ?)
