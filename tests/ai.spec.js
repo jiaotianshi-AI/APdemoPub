@@ -14,6 +14,12 @@ const KEY2 = "sk-ant-test-valid-key-0002";
 const BAD_KEY = "sk-ant-test-INVALID-key-9999";
 
 const adminCtx = (playwright, baseURL) => playwright.request.newContext({ baseURL, storageState: state("admin") });
+// 点“请求 AI 评分”→ 在确认框里点“确认提交”
+async function askAi(page, row, label) {
+  await row.getByRole("button", { name: "请求 AI 评分：" + label }).click();
+  await page.locator("#confirm-ok").click();
+}
+const radioVal = (row) => row.locator("input[type=radio]:checked").evaluateAll((a) => (a[0] ? a[0].value : ""));
 const prov = (s, id) => s.providers.find((p) => p.id === id);
 const putAi = (admin, data) => admin.put("/api/admin/ai", { headers: H, data });
 const reqs = async (request) => (await request.get(MOCK + "/__requests")).json();
@@ -563,29 +569,32 @@ test("督导者页：为每道题上传判分标准 → 请求 AI 评分 → 看
   await openGrade(page);
   const rows = page.locator("#grade-rows .grade-row");
   await expect(rows).toHaveCount(2);
-  await expect(rows.first()).toContainText("判分标准 PDF（AI 评分需要，学生看不到）");
-  // 没有判分标准：提示先上传
+  await expect(rows.first()).not.toContainText("学生看不到");
+  await expect(rows.first()).not.toContainText("暂无，可为空");
+  // 没有评分标准：提示需要补充（不弹确认框）
   await rows.first().getByRole("button", { name: "请求 AI 评分：Q1" }).click();
-  await expect(rows.first().locator(".ai-status")).toContainText("请先上传这道题的判分标准 PDF");
-  // 学生是屏幕输入：文字来源可选、回答 PDF 来源不可选（还没上传）
-  await expect(rows.first().getByLabel("学生输入的回答文字")).toBeChecked();
-  await expect(rows.first().getByLabel("回答 PDF", { exact: true })).toBeDisabled();
+  await expect(rows.first().locator(".ai-status")).toContainText("需要补充：评分标准 PDF");
+  await expect(page.locator("#confirm-dialog")).not.toBeVisible();
+  // 学生文字答案显示在只读文本框里
+  await expect(rows.first().getByLabel("Q1 学生文字答案")).toHaveValue("第一题的回答 SCORE=4");
 
   // 上传判分标准并请求
   await rows.first().locator("input[type=file][aria-label*='判分标准']").setInputFiles({ name: "标准Q1.pdf", mimeType: "application/pdf", buffer: pdf("RUBRIC Q1") });
   await expect(rows.first()).toContainText("标准Q1.pdf");
   await resetMock(admin);
   await rows.first().getByRole("button", { name: "请求 AI 评分：Q1" }).click();
+  await expect(page.locator("#confirm-message")).toContainText("Q1 的题目、学生文字答案和评分标准");
+  await page.locator("#confirm-ok").click();
   await expect(rows.first().locator(".ai-score")).toHaveText("AI 建议评分：4 / 5");
   await expect(rows.first().locator(".ai-meta")).toContainText("claude-opus-5-5");
   await expect(rows.first().locator(".ai-result .answer-text")).toContainText("得分点");
   const seen = await reqs(admin);
   expect(seen).toHaveLength(1);
   expect(seen[0].blocks.filter((b) => b.type === "document")).toHaveLength(2);
-  // 建议值没有自动写入：评分下拉框仍然是“未评分”
-  await expect(rows.first().locator("select")).toHaveValue("");
+  // 建议值没有自动写入：人工评分仍然是未选
+  expect(await radioVal(rows.first())).toBe("");
   await rows.first().getByRole("button", { name: /^采用 Q1 的 AI 评分 4/ }).click();
-  await expect(rows.first().locator("select")).toHaveValue("4");
+  expect(await radioVal(rows.first())).toBe("4");
   await expect(rows.first().locator(".ai-status")).toContainText("点下面的“保存”后生效");
   await page.click("#score-submit");
   await expect(page.locator("#score-dialog")).toBeHidden();
@@ -595,7 +604,7 @@ test("督导者页：为每道题上传判分标准 → 请求 AI 评分 → 看
   await openGrade(page);
   await expect(page.locator("#grade-rows .grade-row").first()).toContainText("标准Q1.pdf");
   await expect(page.locator("#grade-rows .grade-row").first().locator(".ai-score")).toHaveText("AI 建议评分：4 / 5");
-  await expect(page.locator("#grade-rows .grade-row").first().locator("select")).toHaveValue("4");
+  await expect(page.locator("#grade-rows .grade-row").first().locator("input[type=radio]:checked")).toHaveValue("4");
   // 无障碍
   const res = await new AxeBuilder({ page }).analyze();
   expect(res.violations.filter((v) => ["serious", "critical"].includes(v.impact)).map((v) => v.id + ": " + v.nodes.map((n) => n.target.join(" ")).join("|"))).toEqual([]);
@@ -621,13 +630,13 @@ test("督导者页：为所有题目请求 AI 评分（逐题，缺判分标准�
   await expect(rows.nth(2).locator(".ai-score")).toHaveCount(0);
   expect(await reqs(admin)).toHaveLength(2);
   // 逐题采用：不会自动采用
-  await expect(rows.nth(0).locator("select")).toHaveValue("");
+  expect(await radioVal(rows.nth(0))).toBe("");
   await rows.nth(0).getByRole("button", { name: /^采用/ }).click();
   await rows.nth(1).getByRole("button", { name: /^采用/ }).click();
   await expect(page.locator("#grade-overall")).toContainText("已评 2 / 3 题");
   // Q3：给判分标准后单独请求
   await rows.nth(2).locator("input[type=file][aria-label*='判分标准']").setInputFiles({ name: "r3.pdf", mimeType: "application/pdf", buffer: pdf("R3") });
-  await rows.nth(2).getByRole("button", { name: "请求 AI 评分：Q3" }).click();
+  await askAi(page, rows.nth(2), "Q3");
   await expect(rows.nth(2).locator(".ai-score")).toHaveText("AI 建议评分：3 / 5");
   await rows.nth(2).getByRole("button", { name: /^采用/ }).click();
   // 权重默认 1：(5+1+3)/3 = 3 → 汇总 3
@@ -645,24 +654,22 @@ test("督导者页：AI 出错时在这道题下面显示错误（不影响其�
   await supervisorPage(page, s);
   await openGrade(page);
   const row = page.locator("#grade-rows .grade-row").first();
-  // 纸质作答：文字来源不可用；还没有回答 PDF
-  await expect(row.getByLabel("学生输入的回答文字")).toBeDisabled();
-  await expect(row.getByLabel("回答 PDF", { exact: true })).toBeDisabled();
+  // 纸质作答：没有文字答案；还没有 PDF 答案
+  await expect(row.getByLabel("Q1 学生文字答案")).toHaveValue("");
   await row.locator("input[type=file][aria-label*='判分标准']").setInputFiles({ name: "标准.pdf", mimeType: "application/pdf", buffer: pdf("R") });
   await row.getByRole("button", { name: "请求 AI 评分：Q1" }).click();
-  await expect(row.locator(".ai-status")).toContainText("没有可用的学生回答");
+  await expect(row.locator(".ai-status")).toContainText("需要补充：学生答案");
   // 上传回答 PDF（含 HTTP500 标记 → 模拟 AI 服务出错）
   await row.locator("input[type=file][aria-label*='回答 PDF']").setInputFiles({ name: "回答.pdf", mimeType: "application/pdf", buffer: pdf("HTTP500 ANSWER") });
-  await expect(row.getByLabel("回答 PDF", { exact: true })).toBeChecked();
-  await row.getByRole("button", { name: "请求 AI 评分：Q1" }).click();
+  await askAi(page, row, "Q1");
   await expect(row.locator(".ai-status")).toContainText("暂时不可用");
   await expect(row.locator(".ai-status")).toHaveClass(/bad/);
   await expect(row.locator(".ai-score")).toHaveCount(0);
   // 换一个回答 PDF 后成功
   await row.locator("input[type=file][aria-label*='回答 PDF']").setInputFiles({ name: "回答2.pdf", mimeType: "application/pdf", buffer: pdf("ANSWER SCORE=5") });
-  await row.getByRole("button", { name: "请求 AI 评分：Q1" }).click();
+  await askAi(page, row, "Q1");
   await expect(row.locator(".ai-score")).toHaveText("AI 建议评分：5 / 5");
-  await expect(row.locator(".ai-meta")).toContainText("回答 PDF");
+  await expect(row.locator(".ai-meta")).toContainText("学生 PDF 答案");
   expect(rub.id).toBeGreaterThan(0);
   await admin.dispose();
 });
@@ -676,6 +683,7 @@ test("没有配置 AI 时，督导者页点“请求 AI 评分”会提示联系
   await supervisorPage(page, s);
   await openGrade(page);
   await page.getByRole("button", { name: "请求 AI 评分：Q1" }).click();
+  await page.locator("#confirm-ok").click();
   await expect(page.locator("#grade-rows .ai-status").first()).toContainText("AI 评分还没有配置");
   await configure(admin);
   await admin.dispose();
