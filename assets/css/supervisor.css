@@ -36,7 +36,7 @@ dialog::backdrop { background: rgba(15, 23, 42, 0.6); }
 dialog h2 { font-size: 1.25rem; color: var(--c-primary-dark); }
 .dialog-actions { margin-top: 20px; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 12px; }
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
-.field input[type="date"], .field input[type="time"] { min-height: 44px; padding: 0 12px; border: 1px solid #94a3b8; border-radius: 10px; background: #ffffff; }
+.field input[type="date"], .field input[type="time"], .field input[type="number"] { min-height: 44px; padding: 0 12px; border: 1px solid #94a3b8; border-radius: 10px; background: #ffffff; }
 fieldset { margin: 16px 0 0; padding: 0; border: 0; min-width: 0; }
 legend { padding: 0; font-weight: 600; }
 .check-list { margin-top: 8px; max-height: 200px; overflow: auto; border: 1px solid var(--c-border); border-radius: 10px; }
@@ -238,4 +238,22 @@ legend { padding: 0; font-weight: 600; }
   .q-row > .q-ans { grid-column: 2 / -1; }
   .q-row > .q-text.is-empty, .q-row > .q-ans.is-empty { display: none; }
   .q-row > .q-text:not(.is-empty) { padding: 0 0 6px; }
+}
+
+/* 手机竖屏：对话框几乎占满屏幕，底部按钮固定可见；日期/时间并排；评分 1–5 一行放下 */
+@media (max-width: 560px) {
+  dialog { width: calc(100% - 16px); max-height: calc(100vh - 16px); max-height: calc(100dvh - 16px); padding: 16px 14px; border-radius: 16px; }
+  #view-dialog, #score-dialog, #test-dialog { width: calc(100% - 16px); }
+  dialog h2 { font-size: 1.125rem; }
+  .row { grid-template-columns: 1fr 1fr; gap: 0 10px; }
+  .field { margin-top: 12px; }
+  dialog .dialog-actions { position: sticky; bottom: -16px; z-index: 1; margin: 14px -14px -16px; padding: 10px 14px; background: var(--c-card); border-top: 1px solid var(--c-border); flex-wrap: nowrap; }
+  dialog .dialog-actions .btn { flex: 1 1 0; }
+  .grade-row { padding: 10px 12px; }
+  .grade-sec { gap: 2px 10px; padding: 6px 0; }
+  .grade-sec.inline { grid-template-columns: 6.9em minmax(0, 1fr); align-items: center; }
+  .grade-sec.inline .sec-title { padding-top: 0; }
+  .score-radios { flex-wrap: nowrap; gap: 6px; }
+  .score-opt { flex: 1 1 0; min-width: 0; }
+  .score-opt span { width: 100%; min-width: 0; }
 }

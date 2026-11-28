@@ -1073,8 +1073,8 @@
     clear(host);
     a.questionFiles.forEach(function (q) {
       var box = el("div", "grade-row");
-      function section(title) {
-        var sec = el("div", "grade-sec");
+      function section(title, inline) {
+        var sec = el("div", "grade-sec" + (inline ? " inline" : ""));
         sec.appendChild(el("div", "sec-title", title));
         var body = el("div", "sec-body");
         sec.appendChild(body);
@@ -1087,7 +1087,7 @@
       var onFileChange = function () { if (aiPart) aiPart.refresh(); };
 
       // 1 问题
-      var qb = section("问题");
+      var qb = section("问题", true);
       var ql = el("a", "file-link", shortName(q.name));
       ql.href = "/api/supervisor/files/" + q.id;
       ql.title = q.name;
@@ -1106,11 +1106,11 @@
       tb.appendChild(ta);
 
       // 3 学生 PDF 答案
-      var pb = section("学生 PDF 答案");
+      var pb = section("学生 PDF 答案", true);
       var picker = answerPicker(pb, q.answerFile, q.label, "回答 PDF", onFileChange);
 
       // 4 评分标准
-      var rb = section("评分标准");
+      var rb = section("评分标准", true);
       var rubric = answerPicker(rb, q.rubricFile, q.label, "判分标准 PDF", onFileChange);
       row.answer = picker;
       row.rubric = rubric;
