@@ -40,8 +40,9 @@
 
       <!-- 写作板块的学生：写作日程和题目库 -->
       <div id="writing-area" hidden>
-        <section class="panel-block" aria-labelledby="w-sched-title">
-          <h2 id="w-sched-title">写作日程</h2>
+        <p id="w-flag-banner" class="care-banner" role="status" hidden></p>
+        <details class="panel-block" id="w-sched-panel">
+          <summary><h2 id="w-sched-title">写作日程</h2><span class="panel-sum" id="w-sched-sum"></span></summary>
           <p class="hint" id="w-sched-hint"></p>
           <form id="w-sched-form" novalidate>
             <div class="field">
@@ -61,19 +62,10 @@
             <p id="w-sched-msg" class="msg" role="status" hidden></p>
             <button type="submit" class="btn primary" id="w-sched-save">保存日程</button>
           </form>
-        </section>
+        </details>
 
-        <section class="panel-block" aria-labelledby="w-records-title">
-          <h2 id="w-records-title">写作记录</h2>
-          <p class="hint">每天一篇。展开可以回看作文怎么一轮轮变好：每一轮的作文、AI 的分数和反馈、AI 的问题和孩子的回答。AI 的分数只是建议，你可以修改，孩子能看到。</p>
-          <p id="w-flag-banner" class="care-banner" role="status" hidden></p>
-          <ul id="w-records" class="record-list"></ul>
-          <p id="w-records-empty" class="muted" hidden>还没有写作记录。</p>
-          <p id="w-records-msg" class="msg" role="status" hidden></p>
-        </section>
-
-        <section class="panel-block" aria-labelledby="w-prompts-title">
-          <h2 id="w-prompts-title">题目库</h2>
+        <details class="panel-block" id="w-prompts-panel">
+          <summary><h2 id="w-prompts-title">写作题库</h2><span class="panel-sum" id="w-prompts-sum"></span></summary>
           <p class="hint">每个孩子一份。系统每天把还没写过的题目全部列给孩子，孩子自选一个；写一个少一个。剩余少于 3 个时请追加。</p>
           <p id="w-remaining" class="remaining" role="status"></p>
           <ul id="w-prompts" class="prompt-list"></ul>
@@ -89,7 +81,15 @@
             <button type="submit" class="btn primary" id="w-prompt-add">添加题目</button>
           </form>
           <p id="w-prompt-msg" class="msg" role="status" hidden></p>
-        </section>
+        </details>
+
+        <details class="panel-block" id="w-records-panel">
+          <summary><h2 id="w-records-title">写作记录</h2><span class="panel-sum" id="w-records-sum"></span></summary>
+          <p class="hint">每天一篇。展开可以回看作文怎么一轮轮变好：每一轮的作文、AI 的分数和反馈、AI 的问题和孩子的回答。AI 的分数只是建议，你可以修改，孩子能看到。</p>
+          <ul id="w-records" class="record-list"></ul>
+          <p id="w-records-empty" class="muted" hidden>还没有写作记录。</p>
+          <p id="w-records-msg" class="msg" role="status" hidden></p>
+        </details>
       </div>
     </section>
   </main>

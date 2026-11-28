@@ -260,13 +260,52 @@
       return c;
     });
   }
+  function daysText(mask) {
+    if (mask === 127) return "每天";
+    if (mask === 31) return "周一至周五";
+    if (mask === 96) return "周末";
+    return DAY_NAMES.filter(function (n, i) { return mask & (1 << i); }).join("、");
+  }
+  // 面板折叠时在标题旁边显示的一行摘要
+  function setSum(id, parts) {
+    var host = $(id);
+    clear(host);
+    parts.forEach(function (p) {
+      if (typeof p === "string") host.appendChild(el("span", "", p));
+      else host.appendChild(el("span", p.cls || "", p.text));
+    });
+  }
+  function sumSchedule() {
+    var sch = wstate.data && wstate.data.schedule;
+    if (!sch) return;
+    if (!sch.configured) setSum("w-sched-sum", [{ text: "还没设置", cls: "low" }]);
+    else setSum("w-sched-sum", [daysText(sch.days) + " " + sch.time].concat(sch.paused ? [{ text: "已暂停", cls: "low" }] : []));
+  }
+  function sumRecords() {
+    var list = wstate.sessions || [];
+    var parts = ["共 " + list.length + " 篇"];
+    if (wstate.unreviewedFlags > 0) parts.push({ text: "安全提醒 " + wstate.unreviewedFlags, cls: "low" });
+    if (wstate.missedStreak >= 3) parts.push({ text: "连续 " + wstate.missedStreak + " 天未完成", cls: "low" });
+    setSum("w-records-sum", parts);
+  }
+  function sumPrompts() {
+    var d = wstate.data;
+    if (!d) return;
+    setSum("w-prompts-sum", [{ text: "剩余 " + d.remaining + " 个" + (d.low ? "，请追加" : ""), cls: d.low ? "low" : "" }]);
+  }
   function daysMask() { return dayBoxes.reduce(function (m, c, i) { return c.checked ? m | (1 << i) : m; }, 0); }
   function loadWriting(id) {
     wstate.id = id;
     return api("GET", "/api/supervisor/writing/students/" + id).then(function (data) {
       if (id !== state.currentId) return;
+      var switched = wstate.shownFor !== id;
       wstate.data = data;
       renderWriting();
+      if (switched) { // 切换到另一个学生：全部折叠；写作日程还没设置时展开，方便先设置
+        wstate.shownFor = id;
+        ["w-sched-panel", "w-records-panel", "w-prompts-panel"].forEach(function (pid) { $(pid).open = false; });
+        $("w-sched-panel").open = !data.schedule.configured;
+      }
       return loadRecords(id);
     }).catch(function (e) { setStatus(e.message, true); });
   }
@@ -295,6 +334,7 @@
     $("w-flag-banner").textContent = notes.join(" ");
     $("w-records-empty").hidden = wstate.sessions.length > 0;
     wstate.sessions.forEach(function (r) { ul.appendChild(recordItem(r)); });
+    sumRecords();
     syncStudentFlags();
     if (wstate.reopen) { // 保存评分/标记已查看后，列表刷新了：把刚才展开的那一篇重新展开
       var li = ul.querySelector('[data-id="' + wstate.reopen.id + '"]');
@@ -444,6 +484,7 @@
     drawDays(sch.days);
     $("w-paused").checked = sch.paused;
     showMsg("w-sched-msg", "");
+    sumSchedule();
     renderPrompts();
   }
   function renderPrompts() {
@@ -451,6 +492,7 @@
     var rem = $("w-remaining");
     rem.textContent = "剩余 " + d.remaining + " 个还没写过的题目" + (d.low ? "　·　少于 " + d.lowThreshold + " 个，请追加题目" : "");
     rem.className = "remaining" + (d.low ? " low" : "");
+    sumPrompts();
     var ul = $("w-prompts");
     clear(ul);
     if (!d.prompts.length) ul.appendChild(el("li", "muted", "题目库还是空的，请在下面添加题目。"));
@@ -655,20 +697,24 @@
     return c;
   }
 
-  // 过往的测试：折叠时只显示 测试时间、科目单元、评分
+  // 测试列表（将来的 / 进行中 / 过往的）默认折叠：
+  //   将来的、进行中：测试时间、科目单元、题目数量；过往的：再加评分。点击展开完整信息。
   var openPast = {};
-  function pastItem(a) {
+  function testItem(a, showScore) {
     var open = !!openPast[a.id];
     var wrap = el("div", "past-item" + (open ? " is-open" : ""));
     var panelId = "past-panel-" + a.id;
-    var btn = el("button", "past-toggle");
+    var btn = el("button", "past-toggle" + (showScore ? "" : " no-score"));
     btn.type = "button";
     btn.setAttribute("aria-expanded", open ? "true" : "false");
     btn.setAttribute("aria-controls", panelId);
     btn.setAttribute("data-test-id", String(a.id));
     btn.appendChild(el("span", "p-time", fmtWall(a.scheduledWall)));
-    btn.appendChild(el("span", "p-title", a.subject + " · " + a.unit));
-    btn.appendChild(el("span", "p-score", a.score ? a.score + " / 5" : "—"));
+    var title = el("span", "p-title", a.subject + " · " + a.unit);
+    if (a.status === "in_progress" || a.status === "submitted") title.appendChild(el("span", "badge " + a.status, STATUS[a.status] || a.status));
+    btn.appendChild(title);
+    btn.appendChild(el("span", "p-count", a.questionCount + " 题"));
+    if (showScore) btn.appendChild(el("span", "p-score", a.score ? a.score + " / 5" : "—"));
     var chev = el("span", "p-chev");
     chev.setAttribute("aria-hidden", "true");
     btn.appendChild(chev);
@@ -708,17 +754,17 @@
       var sec = el("section");
       var head = el("div", "group-head");
       head.appendChild(el("h2", "group-title", g[0] + "（" + g[1].length + "）"));
-      if (g[4] && g[1].length) {
-        // 过往的测试默认折叠：只显示 测试时间、科目单元、评分；展开后显示完整信息
+      if (g[1].length) {
         var allOpen = g[1].every(function (a) { return openPast[a.id]; });
         var all = el("button", "btn group-toggle", allOpen ? "全部收起" : "全部展开");
         all.type = "button";
+        all.setAttribute("aria-label", (allOpen ? "全部收起" : "全部展开") + g[0]);
         all.addEventListener("click", function () { g[1].forEach(function (a) { openPast[a.id] = !allOpen; }); renderLists(); });
         head.appendChild(all);
       }
       sec.appendChild(head);
       if (!g[1].length) sec.appendChild(el("p", "empty-note", g[2]));
-      g[1].forEach(function (a) { sec.appendChild(g[4] ? pastItem(a) : card(a)); });
+      g[1].forEach(function (a) { sec.appendChild(testItem(a, g[4])); });
       host.appendChild(sec);
     });
   }
