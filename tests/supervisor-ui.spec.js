@@ -53,12 +53,22 @@ async function expand(page, unit) {
   if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
 }
+// 三组测试（将来的/进行中/过往的）默认都是折叠的；需要操作卡片时先全部展开
+async function openAll(page) {
+  await page.waitForSelector("#lists .group-title");
+  // 列表刷新后新出现的卡片也是折叠的：反复点“全部展开”，直到没有折叠的为止
+  await expect.poll(async () => {
+    for (const b of await page.locator("#lists .group-toggle").all()) if ((await b.textContent()) === "全部展开") await b.click();
+    return page.locator("#lists .past-toggle[aria-expanded=false]").count();
+  }).toBe(0);
+}
 async function createVia(page, unit, opts = {}) {
   await page.click("#new-btn");
   if (opts.all) await page.locator("#target-box .check.all input").check();
   await fillTest(page, { unit, ...opts });
   await page.click("#test-submit");
   await expect(page.locator("#test-dialog")).toBeHidden();
+  if (!opts.collapsed) await openAll(page);
 }
 
 test("只显示自己关联的学生；点击切换学生", async ({ page }) => {
@@ -387,6 +397,7 @@ test("新建测试可以设置测试时长（默认 60 分钟），并显示在�
   await page.fill("#t-duration", "90");
   await page.click("#test-submit");
   await expect(page.locator("#test-dialog")).toBeHidden();
+  await openAll(page);
   await expect(card(page, unit)).toContainText("测试时长");
   await expect(card(page, unit)).toContainText("90 分钟");
 
@@ -412,6 +423,7 @@ test("学生测试中/已提交：显示状态和作答信息；查看学生答�
 
   await page.reload();
   await expect(page.locator("#lists .group-title").nth(1)).toContainText("进行中与待评分（1）");
+  await openAll(page);
   const c = card(page, unit);
   await expect(c).toContainText("测试中");
   await expect(c).toContainText("学生正在测试，完成后才能修改");
@@ -421,6 +433,7 @@ test("学生测试中/已提交：显示状态和作答信息；查看学生答�
 
   await stuCtx.post(`/api/student/assessments/${asm.id}/submit`, { headers: H, data: {} });
   await page.reload();
+  await openAll(page);
   await expect(c).toContainText("已提交，待评分");
   await expect(c).toContainText("离开页面 0 次");
   await c.getByRole("button", { name: /^查看学生答题：/ }).click();
@@ -488,6 +501,7 @@ test("截图归档：每题回答与评分（供人工审阅外观）", async ({
   const f = await uploadPdfApi(await loginCtx(playwright, baseURL, (await (await page.request.get("/api/me")).json()).username), "Q2-回答.pdf", "a");
   await page.request.patch(`/api/supervisor/assessments/${asm.id}`, { headers: H, data: { questions: [{ questionFileId: qs[0].id, score: 5 }, { questionFileId: qs[1].id, answerFileId: f.id, score: 3 }] } });
   await page.reload();
+  await openAll(page);
   await page.screenshot({ path: path.join(dir, "supervisor-questions.png"), fullPage: true });
   await card(page, "Unit 2").getByRole("button", { name: /^答题与评分：/ }).click();
   await page.screenshot({ path: path.join(dir, "supervisor-grade.png") });
@@ -514,6 +528,7 @@ test("新建测试：每个题目 PDF 旁边可以设置权重（默认 1）；�
   await weights.nth(1).fill("2");
   await page.click("#test-submit");
   await expect(page.locator("#test-dialog")).toBeHidden();
+  await openAll(page);
 
   const c = card(page, unit);
   const rows = c.locator(".q-row:not(.q-head)");
@@ -750,6 +765,11 @@ test("答题与评分：每题分成 6 个模块（问题、学生文字答案�
 });
 
 // ---- 写作板块：日程和题目库 ----
+// 写作板块的三个面板（日程、记录、题目库）默认折叠；等数据加载完，再全部展开
+async function openPanels(page) {
+  await expect(page.locator("#w-prompts-sum")).not.toBeEmpty();
+  await page.evaluate(() => document.querySelectorAll("details.panel-block").forEach((d) => { d.open = true; }));
+}
 async function writingPage(page, playwright, baseURL, opts = {}) {
   const { PASSWORD } = require("./helpers");
   const sup = await makeUser("supervisor", "wsui");
@@ -759,6 +779,7 @@ async function writingPage(page, playwright, baseURL, opts = {}) {
   await page.goto("/supervisor");
   await page.locator(".student-btn", { hasText: stu.username }).click();
   await expect(page.locator("#writing-area")).toBeVisible();
+  await openPanels(page);
   return { sup, stu };
 }
 
@@ -783,6 +804,7 @@ test("写作学生：设定日程（时间、重复、暂停）并保存；刷�
   await expect(page.locator("#w-sched-msg")).toHaveText("日程已保存。");
   await page.reload();
   await page.locator(".student-btn", { hasText: stu.username }).click();
+  await openPanels(page);
   await expect(page.locator("#w-time")).toHaveValue("16:30");
   await expect(page.locator("#w-paused")).toBeChecked();
   await expect(page.locator("#w-days input:checked")).toHaveCount(7);
@@ -843,6 +865,7 @@ test("写作学生页：无障碍（axe）和触控目标；切换到 AP 学生�
   linkSupervisor(sup.id, ap.id);
   await page.reload();
   await page.locator(".student-btn", { hasText: stu.username }).click();
+  await openPanels(page);
   await page.fill("#w-time", "16:30");
   await page.click("#w-days-weekdays");
   await page.fill("#w-prompt-title", "My best day");

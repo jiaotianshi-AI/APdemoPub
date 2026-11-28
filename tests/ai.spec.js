@@ -555,6 +555,9 @@ async function supervisorPage(page, s) {
   await loginAs(page, s.sup.username);
   await page.goto("/supervisor");
   await expect(page.locator(".test-card, .past-item").first()).toBeVisible();
+  // 测试列表默认折叠：全部展开，才能点到卡片里的按钮
+  for (const b of await page.locator("#lists .group-toggle").all()) if ((await b.textContent()) === "全部展开") await b.click();
+  await expect(page.locator(".test-card").first()).toBeVisible();
 }
 const openGrade = async (page) => {
   await page.getByRole("button", { name: /^答题与评分：/ }).first().click();

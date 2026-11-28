@@ -164,7 +164,9 @@ test("督导者页：写作记录——展开回看每一轮、修改评分并�
   await page.goto("/supervisor");
   await expect(page.locator(".student-btn", { hasText: stu.username })).toContainText("安全提醒（1）");
   await page.locator(".student-btn", { hasText: stu.username }).click();
-  await expect(page.locator("#w-flag-banner")).toContainText("1 条 AI 标记的安全内容还没查看");
+  await expect(page.locator("#w-flag-banner")).toContainText("1 条 AI 标记的安全内容还没查看"); // 提醒横幅不在折叠面板里，始终可见
+  await expect(page.locator("#w-records-sum")).toContainText("安全提醒 1");
+  await page.locator("#w-records-panel > summary").click();
   const items = page.locator("#w-records .rec-item");
   await expect(items).toHaveCount(2);
   await page.waitForLoadState("networkidle"); // 选中学生会再加载一次记录；等它完成，免得展开的内容被刷新掉
@@ -256,5 +258,7 @@ test("督导者页：连续 3 天以上没写完时，学生列表和记录区�
   await expect(page.locator(".student-btn", { hasText: stu.username })).toContainText("连续 5 天未完成");
   await page.locator(".student-btn", { hasText: stu.username }).click();
   await expect(page.locator("#w-flag-banner")).toContainText("连续 5 个写作日没有完成");
+  await expect(page.locator("#w-records-sum")).toContainText("连续 5 天未完成");
+  await page.locator("#w-records-panel > summary").click();
   await expect(page.locator("#w-records-empty")).toBeVisible();
 });
