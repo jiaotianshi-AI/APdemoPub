@@ -29,7 +29,8 @@ module.exports = {
   aiMaxPerHour: Number(process.env.AI_MAX_PER_HOUR || 60), // 每个督导者每小时最多提交的 AI 评分次数
   cookieSecure: process.env.COOKIE_SECURE !== '0', // 正式环境为 HTTPS；仅本地测试时设为 0
   cookieName: 'apdemo_sid',
-  sessionDays: 7,
+  sessionDays: 7, // 默认保持登录天数
+  sessionDaysByType: { supervisor: 30 }, // 督导者（家长）通常用自己的手机，保持登录更久；其余角色用默认值
   loginMaxFailures: Number(process.env.LOGIN_MAX_FAILURES || 5), // 同一账号名+IP 连续失败次数
   loginLockMinutes: Number(process.env.LOGIN_LOCK_MINUTES || 15),
   ipMaxFailures: Number(process.env.IP_MAX_FAILURES || 40) // 同一 IP 的失败总次数

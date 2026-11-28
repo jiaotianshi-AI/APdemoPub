@@ -58,10 +58,12 @@ async function dummyVerify(password) {
 /* ---------- 会话 ---------- */
 function sha256(text) { return crypto.createHash('sha256').update(text).digest('hex'); }
 
-function createSession(accountId) {
+function sessionDaysFor(type) { return config.sessionDaysByType[type] || config.sessionDays; }
+
+function createSession(accountId, type) {
   const token = crypto.randomBytes(32).toString('base64url');
   const now = new Date();
-  const expires = new Date(now.getTime() + config.sessionDays * 86400 * 1000);
+  const expires = new Date(now.getTime() + sessionDaysFor(type) * 86400 * 1000);
   db.prepare('INSERT INTO sessions (token_hash, account_id, created_at, expires_at) VALUES (?, ?, ?, ?)')
     .run(sha256(token), accountId, now.toISOString(), expires.toISOString());
   return { token, expires };
@@ -129,6 +131,7 @@ function registerFailure(key, max) {
 function clearFailures(key) { fails.delete(key); }
 
 module.exports = {
+  sessionDaysFor,
   normalizeUsername, usernameKey, hashPassword, verifyPassword, generatePassword, validateNewPassword, dummyVerify,
   createSession, getAccountBySession, deleteSession, deleteAccountSessions, purgeExpiredSessions,
   parseCookies, sessionCookie, clearCookie, throttleState, registerFailure, clearFailures
