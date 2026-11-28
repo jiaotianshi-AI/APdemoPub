@@ -39,12 +39,6 @@
       feedback: "Feedback",
       finalEssay: "Your final essay",
       confirmFinish: "Your essay will be saved and you will get your score now. You cannot change it afterwards.",
-      pastNone: "Nothing here yet.",
-      kindDone: "Finished",
-      kindUnfinished: "Not finished",
-      kindMissed: "Missed",
-      show: "Show",
-      hide: "Hide",
       loadError: "Something went wrong. Please try again.",
       networkError: "Network problem. Please try again.",
       coachBusy: "The coach could not answer right now. Please try again in a minute.",
@@ -94,10 +88,6 @@
   var ui = {};
 
   function wordCount(t) { return (String(t).match(/\S+/g) || []).length; }
-  function fmtDay(day) {
-    var p = day.split("-");
-    return ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(p[1]) - 1] + " " + Number(p[2]) + ", " + p[0];
-  }
   function fmtTime(hm) {
     var h = Number(hm.slice(0, 2));
     return (h % 12 === 0 ? 12 : h % 12) + ":" + hm.slice(3, 5) + " " + (h < 12 ? "AM" : "PM");
@@ -304,7 +294,6 @@
       render();
       var top = document.querySelector(".advice-card, .result-card");
       if (top && top.scrollIntoView) top.scrollIntoView({ block: "nearest" });
-      loadHistory();
     }).catch(function (e) {
       setBusy(false, s);
       ui.msg.hidden = false;
@@ -342,43 +331,6 @@
     host.appendChild(c);
   }
 
-  /* ---------- 过往记录 ---------- */
-  function loadHistory() {
-    return request("GET", "/api/writing/history").then(function (d) {
-      var ul = $("history");
-      clear(ul);
-      $("history-empty").hidden = d.items.length > 0;
-      d.items.forEach(function (it) {
-        var li = el("li", "h-item h-" + it.kind);
-        var head = el("div", "h-head");
-        head.appendChild(el("span", "h-day", fmtDay(it.day)));
-        head.appendChild(el("span", "h-kind", it.kind === "done" ? T.kindDone : it.kind === "unfinished" ? T.kindUnfinished : T.kindMissed));
-        if (it.promptTitle) head.appendChild(el("span", "h-title", it.promptTitle));
-        if (it.kind === "done" && it.finalScore) head.appendChild(el("span", "score-badge", T.score + " " + it.finalScore + T.outOf));
-        li.appendChild(head);
-        if (it.scores.length) li.appendChild(el("p", "h-steps", it.scores.map(function (s, i) { return T.round + (i + 1) + ": " + s; }).join(" → ")));
-        if (it.kind === "done") {
-          var det = el("div", "h-detail");
-          det.hidden = true;
-          if (it.supervisorComment) det.appendChild(el("p", "feedback", T.teacherComment + ": " + it.supervisorComment));
-          if (it.feedback) det.appendChild(el("p", "feedback", it.feedback));
-          det.appendChild(el("div", "final-essay", it.essay));
-          var tg = el("button", "btn", T.show);
-          tg.type = "button";
-          tg.setAttribute("aria-expanded", "false");
-          tg.addEventListener("click", function () {
-            det.hidden = !det.hidden;
-            tg.textContent = det.hidden ? T.show : T.hide;
-            tg.setAttribute("aria-expanded", det.hidden ? "false" : "true");
-          });
-          li.appendChild(tg);
-          li.appendChild(det);
-        }
-        ul.appendChild(li);
-      });
-    }).catch(function () { /* 过往记录加载失败不影响今天的写作 */ });
-  }
-
   function init() {
     $("notice").textContent = T.notice;
     request("GET", "/api/me").then(function (me) {
@@ -387,7 +339,6 @@
     }).catch(function () { /* 忽略 */ });
     window.addEventListener("beforeunload", function () { if (state.dirty) save(); });
     load();
-    loadHistory();
   }
   init();
 })();

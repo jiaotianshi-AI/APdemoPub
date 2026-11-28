@@ -228,7 +228,7 @@ test("孩子页面：督导者改过分数后，看到最终分数、“督导�
   db.prepare("INSERT INTO writing_turns (session_id, round, essay, score, feedback, questions, done, created_at) VALUES (?, 1, 'a', 2, 'ok', '[]', 0, ?), (?, 2, 'fin', 3, 'Nice!', '[]', 1, ?)").run(sid, now(), sid, now());
   db.prepare("INSERT INTO writing_grades (session_id, ai_score, supervisor_score, supervisor_comment, updated_at) VALUES (?, 3, 5, 'You worked so hard!', ?)").run(sid, now());
   await login(page, u.username);
-  await page.goto("/writing");
+  await page.goto("/writing/write");
   await expect(page.locator(".fs-num")).toHaveText("5 / 5");
   await expect(page.locator(".result-card")).toContainText("Your parent or teacher set this score. The AI coach suggested 3 / 5.");
   await expect(page.locator(".result-card")).toContainText("You worked so hard!");

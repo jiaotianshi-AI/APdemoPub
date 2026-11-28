@@ -1214,7 +1214,7 @@ test("写作页（界面）：选题 → 写第一稿 → 请提建议 → 回�
   await configure(admin);
   const u = await makeWritingStudent({ startDate: new Date().toISOString().slice(0, 10) });
   await page.request.post("/api/login", { headers: H, data: { username: u.username, password: PASSWORD } });
-  await page.goto("/writing");
+  await page.goto("/writing/write");
   await page.locator(".topic-btn", { hasText: "My best day" }).click();
   await page.fill("#essay", SHORT);
   await page.getByRole("button", { name: "Give me some advice" }).click();
@@ -1390,7 +1390,7 @@ test("写作页：AI 标记了安全内容时，孩子看到一条温和的固�
   await configure(admin);
   const u = await makeWritingStudent({ startDate: new Date().toISOString().slice(0, 10) });
   await page.request.post("/api/login", { headers: H, data: { username: u.username, password: PASSWORD } });
-  await page.goto("/writing");
+  await page.goto("/writing/write");
   await page.locator(".topic-btn").first().click();
   await page.fill("#essay", "FLAG " + SHORT);
   await page.getByRole("button", { name: "Give me some advice" }).click();
@@ -1490,7 +1490,7 @@ test("写作页（界面）：第一轮后还没回答问题就点“I'm done”
   await configure(admin);
   const u = await makeWritingStudent({ startDate: new Date().toISOString().slice(0, 10) });
   await page.request.post("/api/login", { headers: H, data: { username: u.username, password: PASSWORD } });
-  await page.goto("/writing");
+  await page.goto("/writing/write");
   await page.locator(".topic-btn").first().click();
   // 没请过建议就能点：写了一点就结束
   await expect(page.getByRole("button", { name: "I'm done" })).toBeVisible();
