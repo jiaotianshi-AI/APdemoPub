@@ -4,7 +4,7 @@
 
   var dict = {
     zh: {
-      "meta.title": "Focus",
+      "meta.title": "FocusGo",
       "meta.description": "AP 自学演示页：进度和测试、自学视频、AP 问答机器人与关联网站入口（演示版）。",
       "a11y.langGroup": "语言切换",
       "account.logout": "退出登录",
@@ -138,7 +138,7 @@
       "footer.disclaimer": "AP® 是 College Board 的注册商标。本站为非官方演示版，与 College Board、Khan Academy、Google Classroom 均无关联，也未获其认可。"
     },
     en: {
-      "meta.title": "Focus",
+      "meta.title": "FocusGo",
       "meta.description": "AP self-study demo page: progress and tests, study videos, an AP Q&A bot, and related sites (demo version).",
       "a11y.langGroup": "Language",
       "account.logout": "Log out",

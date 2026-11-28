@@ -234,8 +234,17 @@ a { color: var(--c-primary); }
 .t-toggle-all { min-height: 44px; padding: 0 14px; font-size: 0.9375rem; }
 
 /* 品牌副标题（slogan） */
-.brand .slogan { display: block; margin-top: 2px; font-size: 1.125rem; font-weight: 700; color: var(--c-primary); letter-spacing: 0.03em; line-height: 1.2; }
+
 /* 当前学习阶段：标签与内容同一行 */
 .kv-inline { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
 .kv-inline .kv-value { margin-top: 0; }
 @media (max-width: 560px) { .brand .slogan { display: none; } }
+
+/* 品牌：文字 logo（橙色）与副标题（浅蓝）并排 */
+.brand { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; }
+.brand .logo { font-size: 1.5rem; font-weight: 800; color: #ea580c; letter-spacing: 0.01em; }
+.brand .section { font-size: 1.125rem; font-weight: 600; color: var(--c-primary-dark); margin-left: -6px; }
+.brand .slogan { display: inline; margin: 0; font-size: 1.2rem; font-weight: 700; color: #3b82f6; letter-spacing: 0.03em; }
+@media (max-width: 560px) { .brand .slogan { display: none; } }
+.auth-card .brand { display: block; margin-bottom: 4px; }
+.auth-card .brand .logo { font-size: 1.5rem; }

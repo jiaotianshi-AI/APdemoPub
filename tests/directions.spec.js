@@ -89,20 +89,20 @@ test("写作页（占位）与品牌：显示 Focus 和副标题 Focus. Steps. P
   await page.request.post("/api/login", { headers: H, data: { username: w.username, password: PASSWORD } });
   await page.goto("/writing");
   await expect(page.locator("h1")).toHaveText("Writing");
-  await expect(page.locator(".brand")).toContainText("Focus");
+  await expect(page.locator(".brand")).toContainText("FocusGo");
   await expect(page.locator(".slogan")).toHaveText("Focus. Steps. Progress.");
   await page.click("#logout-btn");
   await expect(page).toHaveURL(/\/login$/);
-  await expect(page.locator(".brand")).toHaveText("Focus");
+  await expect(page.locator(".brand")).toHaveText("FocusGo");
   await expect(page.locator(".slogan")).toHaveText("Focus. Steps. Progress.");
   await expect(page.locator("body")).not.toContainText("AP 专注学习");
 });
 
-test("学生 AP 页：品牌是 Focus + 副标题；中英文一致", async ({ page }) => {
+test("学生 AP 页：品牌是 FocusGo + 副标题；中英文一致", async ({ page }) => {
   await page.goto("/apdemo");
-  await expect(page.locator("#brand")).toContainText("Focus");
+  await expect(page.locator("#brand")).toContainText("FocusGo");
   await expect(page.locator("#brand .slogan")).toHaveText("Focus. Steps. Progress.");
-  await expect(page).toHaveTitle("Focus");
+  await expect(page).toHaveTitle("FocusGo");
   await page.goto("/apdemo?lang=en");
   await expect(page.locator("#brand .slogan")).toHaveText("Focus. Steps. Progress.");
   await expect(page.locator("body")).not.toContainText("AP 专注学习");
