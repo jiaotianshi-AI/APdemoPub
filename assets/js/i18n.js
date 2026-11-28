@@ -19,9 +19,9 @@
       "progress.noSubject": "尚未设置学习科目",
       "progress.percent": "学习进度",
       "progress.assessmentTime": "阶段测试最迟完成时间",
-      "progress.countdown.dh": "你还有 {d} 天 {h} 小时，来完成这个测试",
-      "progress.countdown.hm": "你还有 {h} 小时 {m} 分钟，来完成这个测试",
-      "progress.countdown.m": "你还有 {m} 分钟，来完成这个测试",
+      "progress.countdown.dh": "你还有 {d} 天 {h} 小时",
+      "progress.countdown.hm": "你还有 {h} 小时 {m} 分钟",
+      "progress.countdown.m": "你还有 {m} 分钟",
       "progress.noAssessment": "暂无已安排的测试",
 
 

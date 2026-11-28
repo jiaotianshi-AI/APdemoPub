@@ -140,7 +140,7 @@ test("T9 测试时间与倒计时/到点后显示“可以开始测试”", asyn
   await page.clock.install({ time: new Date("2030-06-14T07:30:00-07:00") });
   await ready(page, "zh");
   await expect(page.locator("#progress-body")).toContainText("2030年6月15日 3:00 PM");
-  await expect(page.locator(".status-badge")).toHaveText("你还有 1 天 7 小时，来完成这个测试");
+  await expect(page.locator(".status-badge")).toHaveText("你还有 1 天 7 小时");
   await page.click('.lang-btn[data-lang="en"]');
   await expect(page.locator("#progress-body")).toContainText("Jun 15, 2030, 3:00 PM");
   await expect(page.locator(".status-badge")).toHaveText("You have 1 d 7 h left");
