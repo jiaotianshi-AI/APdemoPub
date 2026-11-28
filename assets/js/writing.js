@@ -32,6 +32,8 @@
       progress: "Your progress",
       finalTitle: "Great job! Your essay is finished.",
       finalScore: "Final score",
+      teacherSet: "Your parent or teacher set this score. The AI coach suggested ",
+      teacherComment: "Comment from your parent or teacher",
       feedback: "Feedback",
       finalEssay: "Your final essay",
       confirmFinish: "You will get your final score now. You cannot change this essay afterwards.",
@@ -327,6 +329,8 @@
     big.appendChild(el("span", "fs-label", T.finalScore));
     big.appendChild(el("span", "fs-num", s.finalScore + T.outOf));
     c.appendChild(big);
+    if (s.supervisorScore) c.appendChild(el("p", "muted", T.teacherSet + s.aiScore + T.outOf + "."));
+    if (s.supervisorComment) { c.appendChild(el("h3", "", T.teacherComment)); c.appendChild(el("p", "feedback", s.supervisorComment)); }
     var last = lastTurn(s);
     if (last) { c.appendChild(el("h3", "", T.feedback)); c.appendChild(el("p", "feedback", last.feedback)); if (last.flag) c.appendChild(el("p", "care-note", T.careNote)); }
     c.appendChild(progressBlock(s));
@@ -353,6 +357,7 @@
         if (it.kind === "done") {
           var det = el("div", "h-detail");
           det.hidden = true;
+          if (it.supervisorComment) det.appendChild(el("p", "feedback", T.teacherComment + ": " + it.supervisorComment));
           if (it.feedback) det.appendChild(el("p", "feedback", it.feedback));
           det.appendChild(el("div", "final-essay", it.essay));
           var tg = el("button", "btn", T.show);

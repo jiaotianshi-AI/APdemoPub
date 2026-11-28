@@ -137,7 +137,7 @@ function setFiles(assessmentId, role, ids) {
 function listStudents(res, ctx) {
   const rows = db.prepare(`SELECT a.id, a.username, a.subject, a.disabled, a.timezone FROM supervisor_students s
     JOIN accounts a ON a.id = s.student_id WHERE s.supervisor_id = ? ORDER BY a.username`).all(ctx.account.id);
-  sendJson(res, 200, { students: rows.map((r) => ({ id: r.id, username: r.username, subject: r.subject || '', direction: subjects.directionOf({ type: 'student', subject: r.subject }), promptsLeft: subjects.directionOf({ type: 'student', subject: r.subject }) === 'writing' ? writing.promptsLeft(r.id) : null, lowPrompts: writing.LOW_PROMPTS, disabled: !!r.disabled, timezone: r.timezone, tzLabel: tzs.label(r.timezone) })) });
+  sendJson(res, 200, { students: rows.map((r) => ({ id: r.id, username: r.username, subject: r.subject || '', direction: subjects.directionOf({ type: 'student', subject: r.subject }), promptsLeft: subjects.directionOf({ type: 'student', subject: r.subject }) === 'writing' ? writing.promptsLeft(r.id) : null, lowPrompts: writing.LOW_PROMPTS, writingFlags: subjects.directionOf({ type: 'student', subject: r.subject }) === 'writing' ? writing.flagsOf(r.id) : null, missedStreak: subjects.directionOf({ type: 'student', subject: r.subject }) === 'writing' ? require('./routes-writing').missedStreak(r.id, r.timezone) : null, disabled: !!r.disabled, timezone: r.timezone, tzLabel: tzs.label(r.timezone) })) });
 }
 
 function listAssessments(res, ctx, studentId) {

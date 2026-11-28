@@ -207,6 +207,8 @@
       b.appendChild(el("span", "name", s.username));
       b.appendChild(el("span", "sub", (s.subject ? s.subject : "未设置学习科目") + "　·　" + (s.direction === "writing" ? "写作" : "AP 自学")));
       if (s.direction === "writing" && s.promptsLeft !== null && s.promptsLeft < s.lowPrompts) b.appendChild(el("span", "badge warn", "题目不足（剩 " + s.promptsLeft + "）"));
+      if (s.direction === "writing" && s.writingFlags > 0) b.appendChild(el("span", "badge flag", "安全提醒（" + s.writingFlags + "）"));
+      if (s.direction === "writing" && s.missedStreak >= 3) b.appendChild(el("span", "badge warn", "连续 " + s.missedStreak + " 天未完成"));
       b.appendChild(el("span", "sub", "时区：" + s.tzLabel.zh));
       b.addEventListener("click", function () { selectStudent(s.id); });
       li.appendChild(b);
@@ -265,7 +267,174 @@
       if (id !== state.currentId) return;
       wstate.data = data;
       renderWriting();
+      return loadRecords(id);
     }).catch(function (e) { setStatus(e.message, true); });
+  }
+
+  /* ----- 写作记录：回看每一轮、修改评分、安全标记 ----- */
+  function loadRecords(id) {
+    return api("GET", "/api/supervisor/writing/students/" + id + "/sessions").then(function (d) {
+      if (id !== state.currentId) return;
+      wstate.sessions = d.sessions;
+      wstate.unreviewedFlags = d.unreviewedFlags;
+      wstate.missedStreak = d.missedStreak;
+      renderRecords();
+    }).catch(function (e) { showMsg("w-records-msg", e.message); });
+  }
+  function syncStudentFlags() {
+    var s = currentStudent();
+    if (s) { s.writingFlags = wstate.unreviewedFlags; s.missedStreak = wstate.missedStreak; renderStudents(); }
+  }
+  function renderRecords() {
+    var ul = $("w-records");
+    clear(ul);
+    var notes = [];
+    if (wstate.unreviewedFlags > 0) notes.push("有 " + wstate.unreviewedFlags + " 条 AI 标记的安全内容还没查看，请回看相关作文和对话。");
+    if (wstate.missedStreak >= 3) notes.push("连续 " + wstate.missedStreak + " 个写作日没有完成。");
+    $("w-flag-banner").hidden = !notes.length;
+    $("w-flag-banner").textContent = notes.join(" ");
+    $("w-records-empty").hidden = wstate.sessions.length > 0;
+    wstate.sessions.forEach(function (r) { ul.appendChild(recordItem(r)); });
+    syncStudentFlags();
+    if (wstate.reopen) { // 保存评分/标记已查看后，列表刷新了：把刚才展开的那一篇重新展开
+      var li = ul.querySelector('[data-id="' + wstate.reopen.id + '"]');
+      var flash = wstate.reopen.flash;
+      wstate.reopen = null;
+      if (li) li._open(flash);
+    }
+  }
+  function recordItem(r) {
+    var li = el("li", "rec-item");
+    var head = el("div", "rec-head");
+    head.appendChild(el("span", "rec-day", fmtDate(r.day)));
+    head.appendChild(el("span", "rec-title", r.promptTitle));
+    head.appendChild(el("span", "badge" + (r.status === "done" ? " graded" : " tag"), r.status === "done" ? "已完成" : "没写完"));
+    if (r.status === "done") {
+      head.appendChild(el("span", "badge", "AI " + r.aiScore + " / 5"));
+      if (r.supervisorScore) head.appendChild(el("span", "badge graded", "你改为 " + r.supervisorScore + " / 5"));
+    }
+    if (r.openFlags > 0) head.appendChild(el("span", "badge flag", "安全提醒"));
+    else if (r.flags > 0) head.appendChild(el("span", "badge", "安全提醒（已查看）"));
+    li.appendChild(head);
+    if (r.scores.length) li.appendChild(el("p", "rec-steps", r.scores.map(function (s, i) { return "第 " + (i + 1) + " 轮 " + s; }).join(" → ")));
+    var tg = el("button", "btn", "展开");
+    tg.type = "button";
+    tg.setAttribute("aria-expanded", "false");
+    tg.setAttribute("aria-label", "展开 " + r.day + " 的写作记录");
+    var box = el("div", "rec-detail");
+    box.hidden = true;
+    function open(flash) {
+      tg.disabled = true;
+      return api("GET", "/api/supervisor/writing/sessions/" + r.id).then(function (d) {
+        drawDetail(box, d);
+        box.hidden = false; tg.textContent = "收起"; tg.setAttribute("aria-expanded", "true"); tg.setAttribute("aria-label", "收起 " + r.day + " 的写作记录");
+        if (flash) { var m = box.querySelector(".rec-grade .msg"); if (m) { m.hidden = false; m.textContent = flash; } }
+      }).catch(function (e) { showMsg("w-records-msg", e.message); })
+        .then(function () { tg.disabled = false; });
+    }
+    tg.addEventListener("click", function () {
+      if (!box.hidden) { box.hidden = true; tg.textContent = "展开"; tg.setAttribute("aria-expanded", "false"); tg.setAttribute("aria-label", "展开 " + r.day + " 的写作记录"); return; }
+      open();
+    });
+    li._open = open;
+    li.setAttribute("data-id", String(r.id));
+    li.appendChild(tg);
+    li.appendChild(box);
+    return li;
+  }
+  function drawDetail(box, d) {
+    clear(box);
+    d.turns.forEach(function (t) {
+      var rd = el("div", "rec-round");
+      rd.appendChild(el("h3", "", "第 " + t.round + " 轮　AI 评分 " + t.score + " / 5" + (t.done ? "（结束）" : "") + (t.flag ? "　· 安全提醒" : "")));
+      rd.appendChild(el("p", "muted", "这一轮开始时的作文"));
+      rd.appendChild(el("div", "rec-essay", t.essay));
+      rd.appendChild(el("p", "muted", "AI 的反馈"));
+      rd.appendChild(el("p", "", t.feedback));
+      t.questions.forEach(function (q, i) {
+        var p = el("p", "rec-q");
+        p.appendChild(el("strong", "", q.type + "　"));
+        p.appendChild(document.createTextNode(q.text));
+        if (q.quote) p.appendChild(el("span", "quote", "　（“" + q.quote + "”）"));
+        rd.appendChild(p);
+        rd.appendChild(el("p", "rec-ans", "孩子的回答：" + (t.answers[i] && t.answers[i].trim() ? t.answers[i] : "（没有回答）")));
+      });
+      box.appendChild(rd);
+    });
+    if (d.status === "done") {
+      box.appendChild(el("p", "muted", "最终作文"));
+      box.appendChild(el("div", "rec-essay", d.finalText || d.draft));
+      box.appendChild(recordGradeForm(d));
+    } else {
+      box.appendChild(el("p", "muted", "这一天没有写完。当前草稿："));
+      box.appendChild(el("div", "rec-essay", d.draft || "（空）"));
+    }
+    if (d.openFlags > 0) {
+      var rv = el("button", "btn", "标记为已查看");
+      rv.type = "button";
+      rv.setAttribute("aria-label", "标记 " + d.day + " 的安全提醒为已查看");
+      rv.addEventListener("click", function () {
+        api("POST", "/api/supervisor/writing/sessions/" + d.id + "/review-flags").then(function () { wstate.reopen = { id: d.id, flash: "" }; return loadRecords(wstate.id); })
+          .catch(function (e) { showMsg("w-records-msg", e.message); });
+      });
+      box.appendChild(rv);
+    }
+  }
+  // 修改评分：1–5 单选 + 评语；AI 的原始分数保留，孩子能看到最终的分数和评语
+  function recordGradeForm(d) {
+    var f = el("div", "rec-grade");
+    f.appendChild(el("h3", "", "评分（孩子能看到）"));
+    f.appendChild(el("p", "muted", "AI 的建议分是 " + d.aiScore + " / 5。你可以改成别的分数并写一句评语；改过的分数以你的为准。"));
+    var wrap = el("div", "score-radios");
+    wrap.setAttribute("role", "radiogroup");
+    wrap.setAttribute("aria-label", d.day + " 的评分");
+    var radios = [];
+    for (var i = 1; i <= 5; i++) {
+      var l = el("label", "score-opt");
+      var r = el("input");
+      r.type = "radio";
+      r.name = "w-score-" + d.id;
+      r.value = String(i);
+      r.checked = d.supervisorScore === i;
+      r.setAttribute("aria-label", d.day + " 评分 " + i);
+      l.appendChild(r);
+      l.appendChild(el("span", "", String(i)));
+      wrap.appendChild(l);
+      radios.push(r);
+    }
+    f.appendChild(wrap);
+    var lab = el("label", "", "评语（可选，孩子能看到）");
+    var ta = el("textarea");
+    ta.rows = 2;
+    ta.maxLength = 1000;
+    ta.id = "w-comment-" + d.id;
+    lab.htmlFor = ta.id;
+    ta.value = d.supervisorComment;
+    f.appendChild(lab);
+    f.appendChild(ta);
+    var msg = el("p", "msg", "");
+    msg.setAttribute("role", "status");
+    msg.hidden = true;
+    function save(score) {
+      api("PUT", "/api/supervisor/writing/sessions/" + d.id + "/grade", { score: score, comment: ta.value }).then(function () {
+        wstate.reopen = { id: d.id, flash: score === null ? "已恢复为 AI 的分数。" : "已保存。" };
+        return loadRecords(wstate.id);
+      }).catch(function (e) { msg.hidden = false; msg.textContent = e.message; });
+    }
+    var sv = el("button", "btn primary", "保存评分");
+    sv.type = "button";
+    sv.addEventListener("click", function () {
+      var c = radios.filter(function (x) { return x.checked; })[0];
+      if (!c) { msg.hidden = false; msg.textContent = "请先选择 1–5 的分数。"; return; }
+      save(Number(c.value));
+    });
+    var rs = el("button", "btn", "恢复为 AI 的分数");
+    rs.type = "button";
+    rs.addEventListener("click", function () { save(null); });
+    f.appendChild(sv);
+    f.appendChild(rs);
+    f.appendChild(msg);
+    return f;
   }
   function renderWriting() {
     var d = wstate.data;

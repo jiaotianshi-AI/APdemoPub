@@ -47,10 +47,15 @@ function sessionView(s) {
   const p = s.prompt_id ? db.prepare('SELECT hint FROM writing_prompts WHERE id = ?').get(s.prompt_id) : null;
   const last = turns[turns.length - 1] || null;
   const done = s.status === 'done';
+  const g = db.prepare('SELECT ai_score, supervisor_score, supervisor_comment FROM writing_grades WHERE session_id = ?').get(s.id);
+  const aiScore = done && last ? last.score : null;
   return {
     id: s.id, day: s.day, promptTitle: s.prompt_title, hint: (p && p.hint) || '', status: s.status, draft: s.draft,
     finalText: s.final_text, rounds: turns.length, minRounds: MIN_ROUNDS, maxRounds: MAX_ROUNDS, turns,
-    finalScore: done && last ? last.score : null,
+    aiScore,
+    supervisorScore: g && g.supervisor_score ? g.supervisor_score : null,
+    supervisorComment: (g && g.supervisor_comment) || '',
+    finalScore: done ? ((g && g.supervisor_score) || aiScore) : null, // 督导者改过分就以督导者的为准
     canAdvice: !done && turns.length < MAX_ROUNDS,
     canFinish: !done && turns.length >= MIN_ROUNDS
   };
@@ -215,7 +220,7 @@ function history(res, ctx) {
   const sessions = db.prepare("SELECT * FROM writing_sessions WHERE student_id = ? AND day < ? ORDER BY day DESC LIMIT 60").all(stu.id, lp.day);
   const items = sessions.map((s) => {
     const v = sessionView(s);
-    return { day: s.day, kind: s.status === 'done' ? 'done' : 'unfinished', promptTitle: s.prompt_title, finalScore: v.finalScore, rounds: v.rounds, scores: v.turns.map((t) => t.score), essay: s.status === 'done' ? s.final_text : null, feedback: s.status === 'done' && v.turns.length ? v.turns[v.turns.length - 1].feedback : null };
+    return { day: s.day, kind: s.status === 'done' ? 'done' : 'unfinished', promptTitle: s.prompt_title, finalScore: v.finalScore, aiScore: v.aiScore, supervisorScore: v.supervisorScore, supervisorComment: v.supervisorComment, rounds: v.rounds, scores: v.turns.map((t) => t.score), essay: s.status === 'done' ? s.final_text : null, feedback: s.status === 'done' && v.turns.length ? v.turns[v.turns.length - 1].feedback : null };
   });
   const sch = db.prepare('SELECT * FROM writing_schedules WHERE student_id = ?').get(stu.id);
   if (sch) {
@@ -238,5 +243,19 @@ module.exports = async function writingApi(req, res, pathname, ctx) {
   if (pathname === '/api/writing/history' && req.method === 'GET') return history(res, ctx);
   throw httpError(404, 'NOT_FOUND', '接口不存在。');
 };
+// 连续未完成：从昨天往前，日程里的日子没有“写完”的作文，连续有几天（遇到写完的就停；最多看 14 天）
+function missedStreak(studentId, tz) {
+  const sch = db.prepare('SELECT * FROM writing_schedules WHERE student_id = ?').get(studentId);
+  if (!sch) return 0;
+  const lp = localParts(tz, new Date());
+  let n = 0;
+  for (let d = addDays(lp.day, -1), i = 0; d >= sch.start_date && i < 14; d = addDays(d, -1), i++) {
+    if (!(sch.days & (1 << dowOfDay(d)))) continue;
+    if (db.prepare("SELECT 1 FROM writing_sessions WHERE student_id = ? AND day = ? AND status = 'done'").get(studentId, d)) break;
+    n += 1;
+  }
+  return n;
+}
+module.exports.missedStreak = missedStreak;
 module.exports.meaningfulChange = meaningfulChange;
 module.exports.localParts = localParts;

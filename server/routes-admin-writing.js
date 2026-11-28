@@ -65,7 +65,25 @@ async function save(req, res, ctx) {
   sendJson(res, 200, view());
 }
 
+// 删除某个孩子的全部写作记录：作文、每一轮、评分、安全标记，以及已经写过的题目（保留还没写过的题目、日程和账号）
+function deleteRecords(res, ctx, idText) {
+  const id = Number(idText);
+  const stu = Number.isInteger(id) ? db.prepare("SELECT * FROM accounts WHERE id = ? AND type = 'student'").get(id) : null;
+  if (!stu) throw httpError(404, 'NOT_FOUND', '没有这个学生。');
+  if (require('./subjects').directionOf(stu) !== 'writing') throw httpError(422, 'NOT_WRITING', '这位学生不属于写作板块。');
+  const sessions = db.prepare('SELECT COUNT(*) AS n FROM writing_sessions WHERE student_id = ?').get(stu.id).n;
+  const prompts = db.prepare('SELECT COUNT(*) AS n FROM writing_prompts WHERE student_id = ? AND used_at IS NOT NULL').get(stu.id).n;
+  require('./db').transaction(() => {
+    db.prepare('DELETE FROM writing_sessions WHERE student_id = ?').run(stu.id); // 每一轮、评分、安全标记随之级联删除
+    db.prepare('DELETE FROM writing_prompts WHERE student_id = ? AND used_at IS NOT NULL').run(stu.id);
+  });
+  audit(ctx.account.username, 'delete_writing_records', stu.username, `${sessions} 篇作文，${prompts} 个已用题目`);
+  sendJson(res, 200, { ok: true, deletedSessions: sessions, deletedPrompts: prompts });
+}
+
 module.exports = async function adminWritingApi(req, res, pathname, ctx) {
+  let m;
+  if ((m = /^\/api\/admin\/writing\/students\/([^/]+)\/records$/.exec(pathname)) && req.method === 'DELETE') return deleteRecords(res, ctx, m[1]);
   if (pathname === '/api/admin/writing' && req.method === 'GET') return sendJson(res, 200, view());
   if (pathname === '/api/admin/writing' && req.method === 'PUT') return save(req, res, ctx);
   throw httpError(404, 'NOT_FOUND', '接口不存在。');

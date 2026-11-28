@@ -114,7 +114,8 @@ test("过往记录：没写完的和漏写的日子（按日程推算，今天�
   const { db } = require("../server/db");
   const u = await makeWritingStudent({ startDate: "2000-01-01" });
   const ctx = await loginCtx(playwright, baseURL, u.username);
-  const iso = (n) => { const d = new Date(); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10); };
+  // 学生所在时区（默认温哥华）的日期：n 天前。服务器按学生当地日期算“昨天”和“今天”，测试也要一致
+  const iso = (n) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Vancouver", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(Date.now() - n * 86400000));
   // 日程只在周一到周五；把起始日放在 6 天前
   db.prepare("UPDATE writing_schedules SET start_date = ?, days = 31 WHERE student_id = ?").run(iso(6), u.id);
   // 前天有一篇没写完的、昨天有一篇写完的
@@ -126,7 +127,7 @@ test("过往记录：没写完的和漏写的日子（按日程推算，今天�
   expect(byDay[iso(1)]).toMatchObject({ kind: "done", promptTitle: "Yesterday", finalScore: 4, rounds: 2, scores: [2, 4], essay: "full essay", feedback: "Great!" });
   expect(byDay[iso(2)]).toMatchObject({ kind: "unfinished", promptTitle: "Old one" });
   expect(byDay[iso(2)].essay).toBeNull(); // 没写完的不显示全文
-  expect(byDay[new Date().toISOString().slice(0, 10)]).toBeUndefined(); // 今天不在过往记录里
+  expect(byDay[iso(0)]).toBeUndefined(); // 今天不在过往记录里
   const missed = items.filter((i) => i.kind === "missed").map((i) => i.day);
   expect(missed.length).toBeLessThanOrEqual(14); // 漏写只推算最近 14 天
   for (const d of missed) expect(((new Date(d + "T12:00:00Z").getUTCDay() + 6) % 7)).toBeLessThan(5); // 只会漏写“日程里的日子”

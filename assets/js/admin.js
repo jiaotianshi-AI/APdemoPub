@@ -354,6 +354,19 @@
         gf.appendChild(el("span", "hint", "升年级时在这里修改。已有作文记录里保存的是当天的年级，不受影响。"));
         host.appendChild(gf);
         host.appendChild(el("p", "hint", a.consentAt ? "监护人同意：已确认（" + a.consentAt.slice(0, 10) + "，由 " + a.consentBy + " 记录）。" : "监护人同意：没有记录。"));
+        var del = el("button", "btn danger", "删除全部写作记录");
+        del.type = "button";
+        del.setAttribute("aria-label", "删除 " + a.username + " 的全部写作记录");
+        del.addEventListener("click", function () {
+          confirmDialog("删除 " + a.username + " 的全部写作记录（所有作文、每一轮的对话、评分、安全标记，以及已经写过的题目）？账号、日程和还没写过的题目保留。这个操作不能撤销。", "删除记录", function () {
+            api("DELETE", "/api/admin/writing/students/" + a.id + "/records").then(function (r) {
+              showMsg("edit-error", "");
+              closeDialog($("edit-dialog"));
+              setStatus("已删除 " + a.username + " 的写作记录（" + r.deletedSessions + " 篇作文，" + r.deletedPrompts + " 个已用题目）。");
+            }).catch(function (err) { showMsg("edit-error", err.message); });
+          });
+        });
+        host.appendChild(del);
       }
     } else {
       var isSup = a.type === "supervisor";

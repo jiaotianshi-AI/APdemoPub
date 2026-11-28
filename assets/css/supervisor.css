@@ -183,3 +183,22 @@ legend { padding: 0; font-weight: 600; }
 .prompt-item.used .p-text { color: var(--c-muted); }
 .prompt-form { margin-top: 14px; }
 .badge.warn { background: #fff4e5; color: #8a4b00; }
+
+/* 写作记录 */
+.care-banner { margin: 8px 0; padding: 10px 12px; border-radius: 10px; background: #fff7ed; color: #9a3412; font-weight: 600; }
+.record-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.rec-item { padding: 10px 0; border-top: 1px solid var(--c-border); }
+.rec-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.rec-day { font-weight: 700; }
+.rec-title { flex: 1 1 12em; min-width: 0; word-break: break-word; }
+.rec-steps { margin: 4px 0; color: var(--c-muted); }
+.rec-detail { margin-top: 10px; padding: 12px; border: 1px solid var(--c-border); border-radius: 10px; background: #f8fafc; }
+.rec-round { margin: 0 0 14px; padding-bottom: 12px; border-bottom: 1px dashed var(--c-border); }
+.rec-round h3 { margin: 0 0 6px; font-size: 1rem; }
+.rec-essay { white-space: pre-wrap; line-height: 1.55; padding: 8px 10px; background: #fff; border: 1px solid var(--c-border); border-radius: 8px; }
+.rec-q { margin: 6px 0 0; }
+.rec-q .quote { color: var(--c-muted); font-style: italic; }
+.rec-ans { margin: 2px 0 0 1rem; }
+.rec-grade { margin-top: 10px; }
+.rec-grade textarea { width: 100%; box-sizing: border-box; font: inherit; padding: 8px 10px; border: 1px solid #94a3b8; border-radius: 10px; }
+.badge.flag { background: #ffedd5; color: #9a3412; }
