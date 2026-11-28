@@ -54,8 +54,10 @@ async function expand(page, unit) {
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
 }
 // 三组测试（将来的/进行中/过往的）默认都是折叠的；需要操作卡片时先全部展开
-async function openAll(page) {
+async function openAll(page, unit) {
   await page.waitForSelector("#lists .group-title");
+  // 如果指定了单元：先等这个测试出现在列表里（刚新建时列表可能还没刷新）
+  if (unit) await expect(page.locator(".past-toggle", { hasText: unit })).toHaveCount(1);
   // 列表刷新后新出现的卡片也是折叠的：反复点“全部展开”，直到没有折叠的为止
   await expect.poll(async () => {
     for (const b of await page.locator("#lists .group-toggle").all()) if ((await b.textContent()) === "全部展开") await b.click();
@@ -68,7 +70,7 @@ async function createVia(page, unit, opts = {}) {
   await fillTest(page, { unit, ...opts });
   await page.click("#test-submit");
   await expect(page.locator("#test-dialog")).toBeHidden();
-  if (!opts.collapsed) await openAll(page);
+  if (!opts.collapsed) await openAll(page, unit);
 }
 
 test("只显示自己关联的学生；点击切换学生", async ({ page }) => {
@@ -397,7 +399,7 @@ test("新建测试可以设置测试时长（默认 60 分钟），并显示在�
   await page.fill("#t-duration", "90");
   await page.click("#test-submit");
   await expect(page.locator("#test-dialog")).toBeHidden();
-  await openAll(page);
+  await openAll(page, unit);
   await expect(card(page, unit)).toContainText("测试时长");
   await expect(card(page, unit)).toContainText("90 分钟");
 
@@ -423,7 +425,7 @@ test("学生测试中/已提交：显示状态和作答信息；查看学生答�
 
   await page.reload();
   await expect(page.locator("#lists .group-title").nth(1)).toContainText("进行中与待评分（1）");
-  await openAll(page);
+  await openAll(page, unit);
   const c = card(page, unit);
   await expect(c).toContainText("测试中");
   await expect(c).toContainText("学生正在测试，完成后才能修改");
@@ -433,7 +435,7 @@ test("学生测试中/已提交：显示状态和作答信息；查看学生答�
 
   await stuCtx.post(`/api/student/assessments/${asm.id}/submit`, { headers: H, data: {} });
   await page.reload();
-  await openAll(page);
+  await openAll(page, unit);
   await expect(c).toContainText("已提交，待评分");
   await expect(c).toContainText("离开页面 0 次");
   await c.getByRole("button", { name: /^查看学生答题：/ }).click();
@@ -528,7 +530,7 @@ test("新建测试：每个题目 PDF 旁边可以设置权重（默认 1）；�
   await weights.nth(1).fill("2");
   await page.click("#test-submit");
   await expect(page.locator("#test-dialog")).toBeHidden();
-  await openAll(page);
+  await openAll(page, unit);
 
   const c = card(page, unit);
   const rows = c.locator(".q-row:not(.q-head)");
@@ -598,11 +600,11 @@ test("督导者页：过往的测试默认折叠，只显示测试时间、科�
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await expect(toggle.locator(".p-time")).toHaveText("2025年1月10日 10:00 AM");
   await expect(toggle.locator(".p-title")).toHaveText("AP Biology · PastOne");
-  await expect(toggle.locator(".p-score")).toHaveText("4 / 5");
+  await expect(toggle.locator(".p-score")).toHaveText("4 / 5 分");
   await expect(one.locator(".past-panel")).toBeHidden();
   await expect(one.getByRole("button", { name: /^重测：/ })).toBeHidden();
   await expect(one.locator(".q-table")).toBeHidden();
-  await expect(page.locator(".past-item", { hasText: "PastUnscored" }).locator(".p-score")).toHaveText("—");
+  await expect(page.locator(".past-item", { hasText: "PastUnscored" }).locator(".p-score")).toHaveText("未评分");
   // 将来/进行中的测试不折叠（这里没有，所以“将来的测试”为空）
   await expect(page.locator("#lists .group-title").first()).toContainText("将来的测试（0）");
 
@@ -654,7 +656,7 @@ test("督导者页：折叠的展开状态在重新加载列表（如保存评�
   await setScore(page, 0, "3");
   await page.click("#score-submit");
   await expect(page.locator("#score-dialog")).toBeHidden();
-  await expect(one.locator(".p-score")).toHaveText("3 / 5"); // 摘要里的评分随之更新
+  await expect(one.locator(".p-score")).toHaveText("3 / 5 分"); // 摘要里的评分随之更新
   await expect(toggle).toHaveAttribute("aria-expanded", "true"); // 仍然展开
   await page.keyboard.press("Escape");
   await toggle.focus();
@@ -884,4 +886,34 @@ test("写作学生页：无障碍（axe）和触控目标；切换到 AP 学生�
   await page.locator(".student-btn", { hasText: ap.username }).click();
   await expect(page.locator("#writing-area")).toBeHidden();
   await expect(page.locator("#new-btn")).toBeVisible();
+});
+
+test("督导者页：将来的/进行中/过往的测试折叠后都是四项（时间、科目单元、题数、评分），列对齐；没评分显示“未评分”", async ({ page, playwright, baseURL }) => {
+  const { students } = await setup(page, 1);
+  const u1 = "Unit " + uid("p"), u2 = "Unit " + uid("q");
+  await createVia(page, u1, { files: ["A.pdf", "B.pdf"], collapsed: true });
+  await createVia(page, u2, { files: ["C.pdf"], collapsed: true, date: "2031-04-15" });
+  const rows = page.locator("#lists .past-toggle");
+  await expect(rows).toHaveCount(2);
+  for (const unit of [u1, u2]) {
+    const t = page.locator(".past-toggle", { hasText: unit });
+    await expect(t.locator(".p-time")).toBeVisible();
+    await expect(t.locator(".p-title")).toContainText("AP Biology · " + unit);
+    await expect(t.locator(".p-score")).toHaveText("未评分");
+  }
+  await expect(page.locator(".past-toggle", { hasText: u1 }).locator(".p-count")).toHaveText("2 题");
+  await expect(page.locator(".past-toggle", { hasText: u2 }).locator(".p-count")).toHaveText("1 题");
+  // 加一条已评分的过往测试，检查三组的列位置一致（桌面宽度下：时间、科目单元、题数、评分的左边缘都对齐）
+  const { db } = require("../server/db");
+  const now = new Date().toISOString();
+  db.prepare("INSERT INTO assessments (student_id, created_by, subject, unit, unit_start_date, unit_start_at, scheduled_wall, scheduled_at, timezone, duration_minutes, status, score, attempt_no, created_at, updated_at) VALUES (?, (SELECT id FROM accounts WHERE username = ?), 'AP Biology', 'PastDone', '2026-01-01', '2026-01-01T08:00:00Z', '2026-01-15T15:00', '2026-01-15T23:00:00Z', 'America/Vancouver', 60, 'graded', 4, 1, ?, ?)")
+    .run(students[0].id, (await (await page.request.get("/api/me")).json()).username, now, now);
+  await page.reload();
+  await expect(page.locator(".past-toggle .p-score", { hasText: "4 / 5 分" })).toBeVisible();
+  const lefts = await page.evaluate(() => ["p-time", "p-title", "p-count", "p-score"].map((c) => Array.from(document.querySelectorAll(".past-toggle ." + c)).map((e) => Math.round(e.getBoundingClientRect().left))));
+  for (const col of lefts) expect(new Set(col).size, JSON.stringify(lefts)).toBe(1);
+  // 手机窄屏：仍然没有横向滚动
+  await page.setViewportSize({ width: 390, height: 844 });
+  const sw = await page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
+  expect(sw[0]).toBeLessThanOrEqual(sw[1]);
 });

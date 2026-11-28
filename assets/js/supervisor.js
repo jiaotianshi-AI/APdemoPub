@@ -698,13 +698,13 @@
   }
 
   // 测试列表（将来的 / 进行中 / 过往的）默认折叠：
-  //   将来的、进行中：测试时间、科目单元、题目数量；过往的：再加评分。点击展开完整信息。
+  //   四项：测试时间、科目单元、题目数量、评分（还没评分显示“未评分”）。点击展开完整信息。
   var openPast = {};
-  function testItem(a, showScore) {
+  function testItem(a) {
     var open = !!openPast[a.id];
     var wrap = el("div", "past-item" + (open ? " is-open" : ""));
     var panelId = "past-panel-" + a.id;
-    var btn = el("button", "past-toggle" + (showScore ? "" : " no-score"));
+    var btn = el("button", "past-toggle");
     btn.type = "button";
     btn.setAttribute("aria-expanded", open ? "true" : "false");
     btn.setAttribute("aria-controls", panelId);
@@ -714,7 +714,7 @@
     if (a.status === "in_progress" || a.status === "submitted") title.appendChild(el("span", "badge " + a.status, STATUS[a.status] || a.status));
     btn.appendChild(title);
     btn.appendChild(el("span", "p-count", a.questionCount + " 题"));
-    if (showScore) btn.appendChild(el("span", "p-score", a.score ? a.score + " / 5" : "—"));
+    btn.appendChild(el("span", "p-score" + (a.score ? "" : " unscored"), a.score ? a.score + " / 5 分" : "未评分"));
     var chev = el("span", "p-chev");
     chev.setAttribute("aria-hidden", "true");
     btn.appendChild(chev);
@@ -764,7 +764,7 @@
       }
       sec.appendChild(head);
       if (!g[1].length) sec.appendChild(el("p", "empty-note", g[2]));
-      g[1].forEach(function (a) { sec.appendChild(testItem(a, g[4])); });
+      g[1].forEach(function (a) { sec.appendChild(testItem(a)); });
       host.appendChild(sec);
     });
   }
