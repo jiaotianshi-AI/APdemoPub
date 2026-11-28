@@ -236,6 +236,42 @@ function finishWithoutNewScore(res, ctx, s, text, prev) {
   return today(res, ctx);
 }
 
+
+// 首页摘要：坚持天数、最近 30 天的作文评分（每天一个）、下一次写作时间
+// 坚持天数 = 从今天（今天还没写完就从昨天）往前，连续“写完”的写作日数；日程以外的日子不打断，也不计数
+function streakOf(studentId, sch, today) {
+  const done = new Set(db.prepare("SELECT day FROM writing_sessions WHERE student_id = ? AND status = 'done'").all(studentId).map((r) => r.day));
+  let d = done.has(today) ? today : addDays(today, -1);
+  let n = 0;
+  for (let i = 0; i < 400; i++, d = addDays(d, -1)) {
+    if (done.has(d)) { n += 1; continue; }
+    if (sch && !(sch.days & (1 << dowOfDay(d)))) continue; // 不是写作日：不打断
+    break;
+  }
+  return n;
+}
+function nextWriting(sch, sess, lp) {
+  if (!sch) return { kind: 'none' };
+  if (sch.paused) return { kind: 'paused' };
+  const scheduled = (day) => !!(sch.days & (1 << dowOfDay(day)));
+  const later = () => { for (let i = 1; i <= 7; i++) { const d = addDays(lp.day, i); if (scheduled(d)) return { kind: 'later', day: d, time: sch.time_of_day, offset: i }; } return { kind: 'none' }; };
+  if (sess && sess.status === 'done') return Object.assign(later(), { doneToday: true });
+  if (sess) return { kind: 'now', day: lp.day, time: sch.time_of_day, continuing: true };
+  if (scheduled(lp.day)) return lp.hm >= sch.time_of_day ? { kind: 'now', day: lp.day, time: sch.time_of_day } : { kind: 'today', day: lp.day, time: sch.time_of_day, offset: 0 };
+  return later();
+}
+function home(res, ctx) {
+  const stu = me(ctx.account);
+  const lp = localParts(stu.timezone, new Date());
+  const sch = db.prepare('SELECT * FROM writing_schedules WHERE student_id = ?').get(stu.id);
+  const sess = todaySession(stu, lp.day);
+  const from = addDays(lp.day, -29);
+  const rows = db.prepare("SELECT * FROM writing_sessions WHERE student_id = ? AND status = 'done' AND day >= ? AND day <= ? ORDER BY day").all(stu.id, from, lp.day);
+  const series = rows.map((r) => ({ day: r.day, score: sessionView(r).finalScore })).filter((x) => x.score);
+  const total = db.prepare("SELECT COUNT(*) AS n FROM writing_sessions WHERE student_id = ? AND status = 'done'").get(stu.id).n;
+  sendJson(res, 200, { day: lp.day, timezone: stu.timezone, streak: streakOf(stu.id, sch, lp.day), totalDone: total, series, next: nextWriting(sch, sess, lp) });
+}
+
 // 过往记录：已完成的、没写完的（最多 60 条），以及最近 14 天内漏写的（按日程推算）
 function history(res, ctx) {
   const stu = me(ctx.account);
@@ -264,6 +300,7 @@ module.exports = async function writingApi(req, res, pathname, ctx) {
   if (pathname === '/api/writing/advice' && req.method === 'POST') return advice(req, res, ctx);
   if (pathname === '/api/writing/finish' && req.method === 'POST') return finish(req, res, ctx);
   if (pathname === '/api/writing/history' && req.method === 'GET') return history(res, ctx);
+  if (pathname === '/api/writing/home' && req.method === 'GET') return home(res, ctx);
   throw httpError(404, 'NOT_FOUND', '接口不存在。');
 };
 // 连续未完成：从昨天往前，日程里的日子没有“写完”的作文，连续有几天（遇到写完的就停；最多看 14 天）

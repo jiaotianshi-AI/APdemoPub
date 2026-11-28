@@ -17,6 +17,8 @@ const PAGES = path.join(config.root, 'pages');
 const EXAM_CSP_EXTRA = "; frame-src 'self'"; // 考试页要在本站页面里显示 PDF
 const PAGE_CSP = "default-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
 const EXAM_CSP = PAGE_CSP + EXAM_CSP_EXTRA;
+// 写作首页要显示 YouTube 视频封面和播放窗口
+const WRITING_HOME_CSP = PAGE_CSP.replace("img-src 'self' data:", "img-src 'self' data: https://i.ytimg.com") + "; frame-src 'self' https://www.youtube-nocookie.com";
 
 // 未登录也能访问的文件（登录页本身需要）
 const PUBLIC_FILES = new Set(['/assets/css/auth.css', '/assets/js/login.js']);
@@ -27,7 +29,8 @@ const ROLE_FILES = {
   '/assets/css/admin.css': 'admin', '/assets/js/admin.js': 'admin', '/assets/js/admin-ai.js': 'admin', '/assets/js/admin-writing.js': 'admin',
   '/assets/css/supervisor.css': 'supervisor', '/assets/js/supervisor.js': 'supervisor',
   '/assets/css/exam.css': 'student', '/assets/js/exam.js': 'student',
-  '/assets/css/writing.css': 'student', '/assets/js/writing.js': 'student'
+  '/assets/css/writing.css': 'student', '/assets/js/writing.js': 'student',
+  '/assets/css/writing-home.css': 'student', '/assets/js/writing-home.js': 'student'
 };
 
 // 旧网址（改成 /apdemo 之前的学生首页和考试页）自动跳到新位置，保留查询参数
@@ -37,7 +40,8 @@ const PAGE_ROUTES = {
   // 学习板块：AP 自学（apdemo）、写作（writing）。学生只能进入自己所属的板块
   '/apdemo': { role: 'student', direction: 'apdemo', file: path.join(config.root, 'index.html'), ownCsp: true }, // 学生页自带 meta CSP（需允许 YouTube）
   '/apdemo/exam': { role: 'student', direction: 'apdemo', file: path.join(PAGES, 'exam.html'), csp: EXAM_CSP },
-  '/writing': { role: 'student', direction: 'writing', file: path.join(PAGES, 'writing.html') },
+  '/writing': { role: 'student', direction: 'writing', file: path.join(PAGES, 'writing.html'), csp: WRITING_HOME_CSP }, // 需允许 YouTube
+  '/writing/write': { role: 'student', direction: 'writing', file: path.join(PAGES, 'writing-write.html') },
   '/supervisor': { role: 'supervisor', file: path.join(PAGES, 'supervisor.html') },
   '/pending': { role: 'support', file: path.join(PAGES, 'pending.html') },
   '/admin': { role: 'admin', file: path.join(PAGES, 'admin.html') },

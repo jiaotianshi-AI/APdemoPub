@@ -1,0 +1,52 @@
+/* Writing 首页（在 AP 首页样式 style.css 的基础上追加） */
+
+/* 左：坚持天数 */
+.daily-main { gap: 14px; }
+.streak { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-size: 1.375rem; font-weight: 700; color: var(--c-text); }
+.streak-num { font-size: 2.75rem; line-height: 1; font-weight: 800; color: #ea580c; }
+.streak-unit { font-size: 1.375rem; }
+
+/* 评分曲线 */
+.chart-box { min-width: 0; }
+.chart-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
+.seg { display: inline-flex; border: 1px solid var(--c-primary); border-radius: 22px; overflow: hidden; }
+.seg-btn { min-height: 44px; min-width: 44px; padding: 0 14px; border: 0; background: var(--c-card); color: var(--c-primary-dark); font: inherit; font-weight: 600; cursor: pointer; }
+.seg-btn + .seg-btn { border-left: 1px solid var(--c-primary); }
+.seg-btn[aria-pressed="true"] { background: var(--c-primary); color: #ffffff; }
+.seg-btn:focus-visible { outline: 3px solid var(--c-primary-dark); outline-offset: -3px; }
+.chart { margin-top: 6px; min-height: 120px; }
+.chart-svg { display: block; width: 100%; height: auto; }
+.chart-grid { stroke: #d3e1fb; stroke-width: 1; }
+.chart-tick { fill: #4b5563; font-size: 12px; }
+.chart-line { fill: none; stroke: var(--c-primary); stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
+.chart-dot { fill: #ffffff; stroke: var(--c-primary); stroke-width: 3; }
+.chart-empty { margin: 0; padding: 22px 12px; text-align: center; color: var(--c-muted); background: #ffffff; border: 1px dashed var(--c-primary-track); border-radius: 12px; }
+
+/* 右：下一次写作时间 */
+.next-plain { margin-top: 6px; font-size: 1.125rem; font-weight: 600; }
+.status-badge.is-done { background: #e5e7eb; color: #374151; }
+a.card-btn { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+.card-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+/* 过往写作（弹窗） */
+.wp-list { list-style: none; margin: 0; padding: 0; }
+.wp-item { padding: 12px 0; border-top: 1px solid var(--c-border); }
+.wp-item:first-child { border-top: 0; padding-top: 0; }
+.wp-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.wp-day { font-weight: 700; }
+.wp-kind { color: var(--c-muted); }
+.wp-missed .wp-kind, .wp-unfinished .wp-kind { color: #92400e; }
+.score-badge { display: inline-block; padding: 2px 12px; border-radius: 999px; font-weight: 700; background: var(--c-primary-soft); color: var(--c-primary-dark); }
+.wp-title { margin: 4px 0 0; font-weight: 600; word-break: break-word; }
+.wp-steps { margin: 2px 0 6px; color: var(--c-muted); font-size: 0.9375rem; }
+.wp-detail { margin-top: 8px; }
+.wp-comment-label { margin: 8px 0 2px; font-weight: 700; }
+.wp-feedback { margin: 6px 0; line-height: 1.55; white-space: pre-wrap; }
+.wp-essay { white-space: pre-wrap; line-height: 1.6; padding: 12px; background: #f8fafc; border: 1px solid var(--c-border); border-radius: 10px; word-break: break-word; }
+.wp-item .card-btn { margin-top: 6px; }
+
+@media (max-width: 560px) {
+  .streak { font-size: 1.125rem; }
+  .streak-num { font-size: 2.25rem; }
+  .streak-unit { font-size: 1.125rem; }
+}

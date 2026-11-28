@@ -1,49 +1,80 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
   <title>FocusGo · Writing</title>
+  <meta name="description" content="" data-i18n-content="meta.description">
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="/assets/css/auth.css">
-  <link rel="stylesheet" href="/assets/css/writing.css">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <link rel="stylesheet" href="/assets/css/writing-home.css">
 </head>
 <body>
-  <header class="topbar">
-    <div class="topbar-inner">
-      <div class="brand"><span class="logo">FocusGo</span><span class="slogan">Focus. Steps. Progress.</span></div>
-      <div class="topbar-right">
-        <span class="who" id="whoami"></span>
-        <button type="button" class="btn" id="logout-btn">Sign out</button>
+  <div id="page">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand" id="brand"></div>
+        <div class="topbar-right">
+          <div class="lang" role="group" data-i18n-aria-label="a11y.langGroup">
+            <button type="button" class="lang-btn" data-lang="zh" lang="zh-CN">中文</button>
+            <span class="lang-sep" aria-hidden="true">|</span>
+            <button type="button" class="lang-btn" data-lang="en" lang="en">EN</button>
+          </div>
+          <span class="user-name" id="user-name"></span>
+          <button type="button" class="login-btn" id="logout-btn">
+            <svg class="icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            <span data-i18n="account.logout">退出登录</span>
+          </button>
+        </div>
       </div>
-    </div>
-  </header>
+    </header>
 
-  <main class="writing">
-    <h1 class="sr-only">Writing</h1>
-    <p class="notice" id="notice" role="note"></p>
-    <div id="today" aria-live="polite"></div>
+    <main class="container" id="main">
+      <h1 class="sr-only">Writing</h1>
 
-    <section class="history" aria-labelledby="history-title">
-      <h2 id="history-title">Past writing</h2>
-      <ul id="history" class="history-list"></ul>
-      <p id="history-empty" class="muted" hidden>Nothing here yet.</p>
-    </section>
-  </main>
+      <!-- 主模块：每日作文（DOM 顺序最前） -->
+      <section class="card module module-primary" id="mod-daily" aria-labelledby="h-daily">
+        <h2 id="h-daily" class="module-title" data-i18n="w.daily.title"></h2>
+        <p class="tagline" data-i18n="w.daily.tagline"></p>
+        <div class="module-body" id="daily-body"><p class="muted" data-i18n="common.loading"></p></div>
+      </section>
 
-  <dialog id="confirm-dialog" aria-labelledby="confirm-title">
-    <div>
-      <h2 id="confirm-title">Finish now?</h2>
-      <p id="confirm-message"></p>
-      <div class="dialog-actions">
-        <button type="button" class="btn" id="confirm-cancel">Keep writing</button>
-        <button type="button" class="btn primary" id="confirm-ok">Yes, I'm done</button>
+      <!-- 辅助模块：顺序固定 -->
+      <div class="aux">
+        <section class="card module module-aux" id="mod-videos" aria-labelledby="h-videos">
+          <h2 id="h-videos" class="module-title" data-i18n="mod.videos.title"></h2>
+          <p class="tagline" data-i18n="w.videos.tagline"></p>
+          <div class="module-body" id="videos-body"><p class="muted" data-i18n="common.loading"></p></div>
+        </section>
+
+        <section class="card module module-aux" id="mod-qa" aria-labelledby="h-qa">
+          <h2 id="h-qa" class="module-title" data-i18n="w.qa.title"></h2>
+          <p class="tagline" data-i18n="w.qa.tagline"></p>
+          <div class="module-body" id="qa-body"><p class="muted" data-i18n="common.loading"></p></div>
+        </section>
       </div>
-    </div>
-  </dialog>
+    </main>
 
-  <script src="/assets/js/page-common.js"></script>
-  <script src="/assets/js/writing.js"></script>
+
+  </div>
+
+  <!-- 通用模态窗口（登录提示、视频） -->
+  <div class="modal" id="modal" hidden>
+    <div class="modal-backdrop" id="modal-backdrop"></div>
+    <div class="modal-dialog" id="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="modal-title" tabindex="-1">
+      <div class="modal-head">
+        <h2 id="modal-title" class="modal-title"></h2>
+        <button type="button" class="modal-close" id="modal-close" data-i18n="modal.close"></button>
+      </div>
+      <div class="modal-body" id="modal-body"></div>
+    </div>
+  </div>
+
+  <script src="/assets/js/config.js"></script>
+  <script src="/assets/js/i18n.js"></script>
+  <script src="/assets/js/api.js"></script>
+  <script src="/assets/js/writing-home.js"></script>
 </body>
 </html>

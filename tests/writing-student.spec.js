@@ -141,7 +141,7 @@ async function login(page, username) { await page.request.post("/api/login", { h
 test("写作页：提示语、选题、写作区、自动保存、字数；不显示 AP 内容", async ({ page }) => {
   const u = await makeWritingStudent();
   await login(page, u.username);
-  await page.goto("/writing");
+  await page.goto("/writing/write");
   await expect(page.locator("#notice")).toContainText("read by an AI coach");
   await expect(page.locator("#whoami")).toContainText(u.username + " (Vancouver, time zone: -7)");
   await expect(page.getByRole("heading", { name: "Pick a topic for today" })).toBeVisible();
@@ -163,8 +163,8 @@ test("写作页：提示语、选题、写作区、自动保存、字数；不�
   const p = await makeWritingStudent({ schedule: false });
   await page.context().clearCookies();
   await login(page, p.username);
-  await page.goto("/writing");
+  await page.goto("/writing/write");
   await expect(page.locator("#today")).toContainText("Your writing time has not been set up yet");
-  await expect(page.locator("#history-empty")).toBeVisible();
+  await expect(page.getByRole("link", { name: /Back to home/ })).toHaveAttribute("href", "/writing");
   void db;
 });
