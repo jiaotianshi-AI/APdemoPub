@@ -1,4 +1,4 @@
-// 学生页：所有测试、立即测试确认、测试页流程（选择作答方式、倒计时、自动保存、提交、到时自动提交、离开页面记录）
+// 学生页：所有测试、马上测试确认、测试页流程（选择作答方式、倒计时、自动保存、提交、到时自动提交、离开页面记录）
 const { test, expect } = require("@playwright/test");
 const AxeBuilder = require("@axe-core/playwright").default;
 const { ANON, H, PASSWORD, makeUser, linkSupervisor, loginCtx, uploadPdf } = require("./helpers");
@@ -47,7 +47,7 @@ test("所有测试：列表按状态分组；未完成的看不到题目；学�
   await expect(todo).toContainText("2031年3月15日 3:00 PM");
   await expect(todo).toContainText("60 分钟");
   await expect(todo).toContainText("题目会在测试开始后显示");
-  await expect(todo.getByRole("button", { name: /^立即测试/ })).toBeVisible();
+  await expect(todo.getByRole("button", { name: /^马上测试/ })).toBeVisible();
   expect(await todo.locator("a").count()).toBe(0); // 没有题目链接
   await expect(page.locator(".t-card", { hasText: "SubmittedUnit" })).toContainText("已提交，待评分");
   const graded = page.locator(".t-card", { hasText: "GradedUnit" });
@@ -67,13 +67,13 @@ test("所有测试：列表按状态分组；未完成的看不到题目；学�
   await expect(page.locator(".t-card", { hasText: "Unit 2" })).toContainText("The questions are shown once the test starts.");
 });
 
-test("立即测试：弹出确认，显示距离测试时间和预计时长；取消不进入，确认后进入测试页", async ({ page, playwright, baseURL }) => {
+test("马上测试：弹出确认，显示距离测试时间和预计时长；取消不进入，确认后进入测试页", async ({ page, playwright, baseURL }) => {
   const s = await scenario(page, playwright, baseURL, { duration: 45 });
   await page.clock.install({ time: new Date("2031-03-12T09:30:00-07:00") }); // 距离测试时间 3 天 5 小时 30 分
   await page.goto("/?lang=zh");
   await page.click("#start-btn");
   await expect(page.locator("#modal")).toBeVisible();
-  await expect(page.locator("#modal-title")).toHaveText("立即测试");
+  await expect(page.locator("#modal-title")).toHaveText("马上测试");
   await expect(page.locator("#modal")).toContainText("距离测试时间还有 3 天 5 小时，你确认要提前测试吗？本次测试预计需要 45 分钟左右，测试期间，联网及 QA bot 功能将被禁用。");
   await page.click('#modal .confirm-actions .card-btn:not(.primary)');
   await expect(page.locator("#modal")).toBeHidden();
@@ -316,7 +316,7 @@ test("同时只能有一场测试在进行：第二场的“开始”被拒绝�
   await page.request.post(`/api/student/assessments/${s.asm.id}/start`, { headers: H, data: { method: "paper", confirmEarly: true } });
   await page.goto("/?lang=zh");
   await page.click("#all-tests-btn");
-  await expect(page.locator(".t-card", { hasText: "Unit 5" }).getByRole("button", { name: /^立即测试/ })).toBeDisabled();
+  await expect(page.locator(".t-card", { hasText: "Unit 5" }).getByRole("button", { name: /^马上测试/ })).toBeDisabled();
   await page.goto(`/exam?id=${asm2.id}&early=1&lang=zh`);
   await page.getByLabel(/写在纸上/).check();
   await page.getByRole("button", { name: "开始计时" }).click();

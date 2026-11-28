@@ -96,7 +96,7 @@
       var wrap = el("div", "progress-layout");
 
       var left = el("div", "progress-main");
-      var cur = el("div", "kv");
+      var cur = el("div", "kv kv-inline");
       cur.appendChild(el("div", "kv-label", t("progress.current")));
       var curText;
       if (prog.subject && prog.unit) curText = t("progress.subjectUnit", { subject: prog.subject, unit: prog.unit });
@@ -391,7 +391,7 @@
     host.appendChild(layout);
   }
 
-  /* ---------- 所有测试、立即测试 ---------- */
+  /* ---------- 所有测试、马上测试 ---------- */
   var testsState = { status: "loading", data: null, loadedAt: 0 };
 
   function leftText(ms) {
@@ -517,7 +517,7 @@
     }, function () { testsState = { status: "error", data: null, loadedAt: 0 }; rebuildModal(); });
   }
 
-  // 点击“立即测试 / 开始测试”：先确认，确认后进入测试页（那里再选作答方式、开始计时）
+  // 点击“马上测试 / 开始测试”：先确认，确认后进入测试页（那里再选作答方式、开始计时）
   function startFlow(a) {
     if (modal.open) closeModal();
     var early = Date.now() < Date.parse(a.scheduledAt);
@@ -548,7 +548,11 @@
   function renderBrand() {
     var node = body("brand");
     if (!node) return;
-    node.textContent = pick(window.APConfig.brandName);
+    node.textContent = "";
+    var logo = document.createElement("span");
+    logo.className = "logo";
+    logo.textContent = pick(window.APConfig.brandName);
+    node.appendChild(logo);
     var sl = document.createElement("span");
     sl.className = "slogan";
     sl.textContent = pick(window.APConfig.slogan);

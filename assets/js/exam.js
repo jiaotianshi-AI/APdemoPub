@@ -478,7 +478,11 @@
   function renderBrand() {
     var b = document.getElementById("brand");
     if (!b || !window.APConfig) return;
-    b.textContent = i18n.pick(window.APConfig.brandName);
+    b.textContent = "";
+    var logo = document.createElement("span");
+    logo.className = "logo";
+    logo.textContent = i18n.pick(window.APConfig.brandName);
+    b.appendChild(logo);
     var sl = document.createElement("span");
     sl.className = "slogan";
     sl.textContent = i18n.pick(window.APConfig.slogan);

@@ -4,7 +4,7 @@
 
   var dict = {
     zh: {
-      "meta.title": "Focus",
+      "meta.title": "FocusGo",
       "meta.description": "AP 自学演示页：进度和测试、自学视频、AP 问答机器人与关联网站入口（演示版）。",
       "a11y.langGroup": "语言切换",
       "account.logout": "退出登录",
@@ -13,15 +13,15 @@
       "error.module": "该模块暂时无法加载，请稍后刷新页面重试。",
 
       "mod.progress.title": "进度和测试",
-      "mod.progress.tagline": "持续跟踪和推进当前学习进度，定时测试学习成果",
-      "progress.current": "当前学习内容",
+      "mod.progress.tagline": "本阶段学习进度和测试安排",
+      "progress.current": "当前学习阶段",
       "progress.subjectUnit": "{subject} · {unit}",
       "progress.noSubject": "尚未设置学习科目",
       "progress.percent": "学习进度",
-      "progress.assessmentTime": "阶段测试时间",
-      "progress.countdown.dh": "还有 {d} 天 {h} 小时",
-      "progress.countdown.hm": "还有 {h} 小时 {m} 分钟",
-      "progress.countdown.m": "还有 {m} 分钟",
+      "progress.assessmentTime": "阶段测试最迟完成时间",
+      "progress.countdown.dh": "你还有 {d} 天 {h} 小时",
+      "progress.countdown.hm": "你还有 {h} 小时 {m} 分钟",
+      "progress.countdown.m": "你还有 {m} 分钟",
       "progress.noAssessment": "暂无已安排的测试",
 
 
@@ -66,7 +66,7 @@
       "tests.scoreValue": "{s} / 5",
       "tests.attempt": "第 {n} 次（重测）",
       "tests.questionsHidden": "题目会在测试开始后显示。",
-      "tests.startNow": "立即测试",
+      "tests.startNow": "马上测试",
       "tests.start": "开始测试",
       "tests.resume": "继续测试",
       "tests.review": "查看题目和我的答案",
@@ -138,7 +138,7 @@
       "footer.disclaimer": "AP® 是 College Board 的注册商标。本站为非官方演示版，与 College Board、Khan Academy、Google Classroom 均无关联，也未获其认可。"
     },
     en: {
-      "meta.title": "Focus",
+      "meta.title": "FocusGo",
       "meta.description": "AP self-study demo page: progress and tests, study videos, an AP Q&A bot, and related sites (demo version).",
       "a11y.langGroup": "Language",
       "account.logout": "Log out",
@@ -147,15 +147,15 @@
       "error.module": "This section could not be loaded right now. Please refresh the page and try again.",
 
       "mod.progress.title": "Progress and Tests",
-      "mod.progress.tagline": "Track and move your current study progress forward, with scheduled tests of what you've learned",
-      "progress.current": "Current study",
+      "mod.progress.tagline": "Study progress and test schedule for this stage",
+      "progress.current": "Current stage",
       "progress.subjectUnit": "{subject} · {unit}",
       "progress.noSubject": "No study subject set yet",
       "progress.percent": "Study progress",
-      "progress.assessmentTime": "Unit test time",
-      "progress.countdown.dh": "{d} d {h} h left",
-      "progress.countdown.hm": "{h} h {m} min left",
-      "progress.countdown.m": "{m} min left",
+      "progress.assessmentTime": "Due time for stage test",
+      "progress.countdown.dh": "You have {d} d {h} h left",
+      "progress.countdown.hm": "You have {h} h {m} min left",
+      "progress.countdown.m": "You have {m} min left",
       "progress.noAssessment": "No test scheduled",
 
 
@@ -200,7 +200,7 @@
       "tests.scoreValue": "{s} / 5",
       "tests.attempt": "Attempt {n} (retake)",
       "tests.questionsHidden": "The questions are shown once the test starts.",
-      "tests.startNow": "Take it now",
+      "tests.startNow": "Test now",
       "tests.start": "Start test",
       "tests.resume": "Resume test",
       "tests.review": "View questions and my answers",

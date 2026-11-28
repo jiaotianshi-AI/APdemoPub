@@ -62,7 +62,7 @@ a { color: var(--c-primary); }
 
 /* ---------- 主模块：进度和测试 ---------- */
 .module-primary { padding: 36px 40px 40px; border: 2px solid var(--c-primary); background: linear-gradient(135deg, var(--c-primary-soft) 0%, #ffffff 70%); box-shadow: var(--shadow-strong); }
-.module-primary .module-title { font-size: 2.5rem; color: var(--c-primary-dark); }
+.module-primary .module-title { font-size: 1.75rem; color: var(--c-primary-dark); }
 .module-primary .tagline { font-size: 1.0625rem; color: var(--c-text); margin-top: 4px; }
 .module-primary .module-body { margin-top: 32px; }
 .progress-layout { display: grid; grid-template-columns: 1.5fr 1fr; gap: 32px; align-items: stretch; }
@@ -70,12 +70,12 @@ a { color: var(--c-primary); }
 .kv-label { font-size: 0.9375rem; font-weight: 600; color: var(--c-muted); }
 .kv-value { font-size: 1.375rem; font-weight: 600; margin-top: 4px; }
 .percent-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-.percent-num { font-size: 5rem; line-height: 1; font-weight: 800; color: var(--c-primary); }
+.percent-num { font-size: 3.25rem; line-height: 1; font-weight: 800; color: var(--c-primary); }
 .bar { margin-top: 12px; height: 26px; border-radius: 13px; background: var(--c-primary-track); overflow: hidden; }
 .bar-fill { height: 100%; width: 0; border-radius: 13px; background: var(--c-primary); transition: width 0.4s ease; }
 .assessment { display: flex; flex-direction: column; justify-content: center; gap: 10px; padding: 22px 24px; border-radius: 14px; background: #ffffff; border: 1px solid var(--c-primary-track); }
 .assessment-time { font-size: 1.5rem; line-height: 1.3; font-weight: 700; color: var(--c-text); }
-.status-badge { align-self: flex-start; padding: 8px 18px; border-radius: 999px; font-size: 1.25rem; font-weight: 700; }
+.status-badge { align-self: flex-start; padding: 8px 16px; border-radius: 20px; font-size: 1.0625rem; line-height: 1.35; font-weight: 700; text-wrap: balance; word-break: keep-all; }
 .status-badge.is-upcoming { background: var(--c-primary); color: #ffffff; }
 .status-badge.is-ended { background: var(--c-ended-bg); color: var(--c-ended-text); }
 .status-badge.is-ready { background: #166534; color: #ffffff; }
@@ -137,12 +137,12 @@ a { color: var(--c-primary); }
   .module-primary { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); column-gap: 32px; row-gap: 0; padding: 26px 32px 28px; align-content: start; }
   .module-primary .module-body, .module-primary .progress-layout { display: contents; }
   .module-primary .exam-banner { grid-column: 1 / -1; grid-row: 1; margin-bottom: 14px; }
-  .module-primary .module-title { grid-column: 1; grid-row: 2; font-size: 2.25rem; }
+  .module-primary .module-title { grid-column: 1; grid-row: 2; font-size: 1.625rem; }
   .module-primary .tagline { grid-column: 1; grid-row: 3; }
   .module-primary .progress-main { grid-column: 1; grid-row: 4; margin-top: 18px; gap: 14px; }
   .module-primary .assessment { grid-column: 2; grid-row: 2 / span 3; align-self: start; padding: 18px 22px; }
   .module-primary .module-body > p:not(.exam-banner) { grid-column: 1 / -1; grid-row: 4; margin-top: 16px; }
-  .module-primary .percent-num { font-size: 4rem; }
+  .module-primary .percent-num { font-size: 2.75rem; }
   .module-primary .bar { margin-top: 8px; height: 24px; border-radius: 12px; }
   .module-primary .bar-fill { border-radius: 12px; }
   .module-primary .assessment-time { font-size: 1.375rem; }
@@ -154,9 +154,9 @@ a { color: var(--c-primary); }
   .footer { padding: 8px 16px 24px; }
   .module-primary { padding: 20px; }
   .qa-layout { grid-template-columns: 1fr; }
-  .module-primary .module-title { font-size: 1.75rem; }
+  .module-primary .module-title { font-size: 1.5rem; }
   .progress-layout { grid-template-columns: 1fr; gap: 20px; }
-  .percent-num { font-size: 3rem; }
+  .percent-num { font-size: 2.25rem; }
   .bar { height: 22px; }
   .aux { grid-template-columns: 1fr; }
   .refs-list { flex-direction: column; }
@@ -234,5 +234,17 @@ a { color: var(--c-primary); }
 .t-toggle-all { min-height: 44px; padding: 0 14px; font-size: 0.9375rem; }
 
 /* 品牌副标题（slogan） */
-.brand .slogan { display: block; font-size: 0.75rem; font-weight: 500; color: var(--c-muted); letter-spacing: 0.02em; }
+
+/* 当前学习阶段：标签与内容同一行 */
+.kv-inline { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.kv-inline .kv-value { margin-top: 0; }
 @media (max-width: 560px) { .brand .slogan { display: none; } }
+
+/* 品牌：文字 logo（橙色）与副标题（浅蓝）并排 */
+.brand { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; }
+.brand .logo { font-size: 1.5rem; font-weight: 800; color: #ea580c; letter-spacing: 0.01em; }
+.brand .slogan { display: inline; margin: 0; font-size: 1.2rem; font-weight: 700; color: #3b82f6; letter-spacing: 0.03em; }
+@media (max-width: 560px) { .brand .slogan { display: none; } }
+.auth-card .brand { margin-bottom: 12px; }
+.auth-card .brand .logo { font-size: 1.5rem; }
+@media (max-width: 560px) { .auth-card .brand .slogan { display: inline; font-size: 1rem; } }
