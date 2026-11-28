@@ -93,11 +93,15 @@ test("首页接口：下一次写作时间（没设置 / 暂停 / 现在可写 /
   n = (await home(ctx)).next;
   expect([n.kind, n.offset, n.doneToday, n.day, n.time]).toEqual(["later", 1, true, iso(-1), "00:00"]);
   await ctx.dispose();
-  // 还没到时间：今天 23:59
+  // 还没到日程时间：今天 23:59（接近午夜时已经是 now，这里不强求）
   stu = await makeWritingStudent({ time: "23:59" });
   ctx = await loginCtx(playwright, baseURL, stu.username);
   n = (await home(ctx)).next;
-  if (n.kind === "today") expect([n.day, n.time, n.offset]).toEqual([iso(0), "23:59", 0]); // 温哥华 23:59 之后极短时间内可能已经是 now
+  expect(["today", "now"]).toContain(n.kind);
+  if (n.kind === "today") expect([n.day, n.time, n.offset]).toEqual([iso(0), "23:59", 0]);
+  // 没到时间也能开始：选题、开始都成功
+  const pr = db.prepare("SELECT id FROM writing_prompts WHERE student_id = ? ORDER BY id").get(stu.id);
+  expect((await ctx.post("/api/writing/start", { headers: H, data: { promptId: pr.id } })).status()).toBe(200);
   await ctx.dispose();
 });
 
@@ -121,14 +125,26 @@ test("首页（中文）：每日作文方框、自学视频、写作精灵；�
   await expect(page.locator("#mod-daily .streak")).toContainText("恭喜！你已坚持每天作文");
   await expect(page.locator("#mod-daily .streak-num")).toHaveText("3");
   await expect(page.locator("#mod-daily .streak")).toContainText("天");
-  await expect(page.locator("#mod-daily")).toContainText("下一次写作时间");
+  await expect(page.locator("#mod-daily")).toContainText("作文成绩趋势");
+  await expect(page.locator("#next-box .kv-label")).toHaveText("下次写作");
+  await expect(page.locator("#last-box .kv-label")).toHaveText("上次写作");
   await expect(page.locator("#mod-daily .status-badge")).toHaveText("现在可以写作了");
+  // 上次写作：日期、状态、评分、题目、每轮分数；“过往写作”在上次写作框里，“马上开写”在下次写作框里
+  await expect(page.locator("#last-box")).toContainText("上次写作");
+  await expect(page.locator("#last-box .last-day")).toHaveText(new RegExp("^\\d+月\\d+日$"));
+  await expect(page.locator("#last-box")).toContainText("已完成");
+  await expect(page.locator("#last-box .score-badge")).toHaveText("评分 4 / 5");
+  await expect(page.locator("#last-box .last-title")).toHaveText("Topic 1");
+  await expect(page.locator("#last-box .last-steps")).toHaveText("第 1 轮: 4");
+  await expect(page.locator("#last-box").getByRole("button", { name: "过往写作" })).toBeVisible();
+  await expect(page.locator("#next-box").getByRole("link", { name: "马上开写" })).toBeVisible();
+  expect(await page.locator("#last-box").evaluate((a) => a.getBoundingClientRect().bottom <= document.querySelector("#next-box").getBoundingClientRect().top)).toBe(true); // 上次写作在上，下次写作在下
   await expect(page.getByRole("link", { name: "马上开写" })).toHaveAttribute("href", "/writing/write");
   await expect(page.getByRole("button", { name: "过往写作" })).toBeVisible();
   // 曲线：默认近 7 天，可切换近 30 天
   await expect(page.getByRole("button", { name: "近 7 天" })).toHaveAttribute("aria-pressed", "true");
   const svg = page.locator("#chart svg");
-  await expect(svg).toHaveAttribute("aria-label", /近 7 天每天的作文评分/);
+  await expect(svg).toHaveAttribute("aria-label", /作文成绩趋势，近 7 天/);
   await expect(svg.locator("circle")).toHaveCount(4);
   await page.getByRole("button", { name: "近 30 天" }).click();
   await expect(page.getByRole("button", { name: "近 30 天" })).toHaveAttribute("aria-pressed", "true");
@@ -156,6 +172,9 @@ test("首页（英文）：切换语言；没写过时的鼓励语和空曲线",
   await expect(page.locator("#h-daily")).toHaveText("Daily Writing");
   await expect(page.locator("#mod-daily .streak")).toHaveText("Start your writing streak today!");
   await expect(page.locator("#chart")).toContainText("Your score curve will appear after your first essay.");
+  await expect(page.locator("#last-box")).toContainText("No writing yet.");
+  await expect(page.locator("#last-box .kv-label")).toHaveText("Last writing");
+  await expect(page.locator("#next-box .kv-label")).toHaveText("Next writing");
   await expect(page.getByRole("link", { name: "Start writing" })).toBeVisible();
   await expect(page.locator("#mod-videos .tagline")).toHaveText("Writing lessons from top teachers");
   await expect(page.locator("#h-qa")).toHaveText("Writing Genie");
@@ -260,4 +279,24 @@ test("权限：/writing/write 只有写作学生能进；AP 学生、督导者�
   expect((await anon.get("/assets/js/writing-home.js", { maxRedirects: 0 })).status()).toBe(401);
   expect((await ap.get("/assets/js/writing-home.js")).status()).toBe(200);
   await w.dispose(); await ap.dispose(); await sup.dispose(); await anon.dispose();
+});
+
+test("首页接口：上次写作（最近一篇；今天还没写完的不算）", async ({ playwright, baseURL }) => {
+  const { db } = require("../server/db");
+  const stu = await makeWritingStudent({ startDate: iso(10), time: "00:00" });
+  const ctx = await loginCtx(playwright, baseURL, stu.username);
+  expect((await home(ctx)).last).toBeNull();
+  seedDone(stu, { 3: 2, 1: 4 });
+  let h = await home(ctx);
+  expect(h.last).toEqual({ day: iso(1), kind: "done", promptTitle: "Topic 1", finalScore: 4, scores: [4] });
+  // 今天正在写、还没写完的不算“上次”（它是“下次写作”里的“继续写作”）
+  db.prepare("INSERT INTO writing_sessions (student_id, day, prompt_title, grade, status, draft, started_at) VALUES (?, ?, 'Half', '4', 'writing', 'x', ?)").run(stu.id, iso(0), now());
+  h = await home(ctx);
+  expect(h.last.day).toBe(iso(1));
+  // 督导者改过分：以改后的为准
+  const sid = db.prepare("SELECT id FROM writing_sessions WHERE student_id = ? AND day = ?").get(stu.id, iso(1)).id;
+  db.prepare("INSERT INTO writing_grades (session_id, ai_score, supervisor_score, updated_at) VALUES (?, 4, 5, ?)").run(sid, now());
+  h = await home(ctx);
+  expect(h.last.finalScore).toBe(5);
+  await ctx.dispose();
 });

@@ -6,7 +6,7 @@ const today = (ctx) => ctx.get("/api/writing/today").then((r) => r.json());
 const localDow = (tz = "America/Vancouver") => ({ Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 })[new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "short" }).format(new Date())];
 const localHm = (tz = "America/Vancouver") => new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date());
 
-test("今天的任务：没有日程 / 暂停 / 今天不写 / 还没到时间 / 可以选题 / 没有题目", async ({ playwright, baseURL }) => {
+test("今天的任务：没有日程 / 暂停 / 今天不写 / 没到日程时间也能选题 / 可以选题 / 没有题目", async ({ playwright, baseURL }) => {
   const { db } = require("../server/db");
   // 没有日程
   let u = await makeWritingStudent({ schedule: false });
@@ -18,14 +18,11 @@ test("今天的任务：没有日程 / 暂停 / 今天不写 / 还没到时间 /
   // 今天不是写作日
   db.prepare("UPDATE writing_schedules SET paused = 0, days = ? WHERE student_id = ?").run(127 & ~(1 << localDow()), u.id);
   expect((await today(ctx)).state).toBe("not_day");
-  // 还没到时间（接近午夜时跳过这一项，避免越过 24:00）
-  if (localHm() < "23:00") {
-    db.prepare("UPDATE writing_schedules SET days = 127, time_of_day = '23:59' WHERE student_id = ?").run(u.id);
-    const d = await today(ctx);
-    expect([d.state, d.schedule.time]).toEqual(["not_yet", "23:59"]);
-    const st = await ctx.post("/api/writing/start", { headers: H, data: { promptId: 1 } });
-    expect([st.status(), (await st.json()).error]).toEqual([409, "NOT_AVAILABLE"]);
-  }
+  // 还没到日程时间：日程时间只是提醒，写作日里任何时候都可以开始（暂停、不是写作日、没有日程才不行）
+  db.prepare("UPDATE writing_schedules SET days = 127, time_of_day = '23:59' WHERE student_id = ?").run(u.id);
+  const early = await today(ctx);
+  expect([early.state, early.schedule.time]).toEqual(["choose", "23:59"]);
+  expect(early.prompts.length).toBe(3);
   // 可以选题：列出还没写过的全部题目
   db.prepare("UPDATE writing_schedules SET days = 127, time_of_day = '00:00' WHERE student_id = ?").run(u.id);
   const d = await today(ctx);

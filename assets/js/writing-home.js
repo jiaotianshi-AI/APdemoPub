@@ -20,12 +20,16 @@
       "w.chart.week": "近 7 天",
       "w.chart.month": "近 30 天",
       "w.chart.range": "时间范围",
-      "w.chart.label": "每天的作文评分",
+      "w.chart.label": "作文成绩趋势",
       "w.chart.empty": "写完第一篇作文后，这里会出现你的评分曲线。",
-      "w.chart.aria": "{range}每天的作文评分：{list}",
-      "w.chart.ariaNone": "{range}还没有作文评分",
+      "w.chart.aria": "作文成绩趋势，{range}：{list}",
+      "w.chart.ariaNone": "作文成绩趋势，{range}：还没有评分",
       "w.chart.score": "{day} 评分 {s} / 5",
-      "w.next.label": "下一次写作时间",
+      "w.next.label": "下次写作",
+      "w.last.label": "上次写作",
+      "w.last.none": "还没有写作记录。",
+      "w.last.date": "{m}月{d}日",
+      "w.last.dateY": "{y}年{m}月{d}日",
       "w.next.today": "今天 {time}",
       "w.next.tomorrow": "明天 {time}",
       "w.next.date": "{m}月{d}日 周{w} {time}",
@@ -63,12 +67,16 @@
       "w.chart.week": "Past 7 days",
       "w.chart.month": "Past 30 days",
       "w.chart.range": "Time range",
-      "w.chart.label": "Essay score each day",
+      "w.chart.label": "Essay score trend",
       "w.chart.empty": "Your score curve will appear after your first essay.",
-      "w.chart.aria": "Essay score each day, {range}: {list}",
+      "w.chart.aria": "Essay score trend, {range}: {list}",
       "w.chart.ariaNone": "No essay scores yet, {range}",
       "w.chart.score": "{day}: score {s} / 5",
-      "w.next.label": "Next writing time",
+      "w.next.label": "Next writing",
+      "w.last.label": "Last writing",
+      "w.last.none": "No writing yet.",
+      "w.last.date": "{m} {d}",
+      "w.last.dateY": "{m} {d}, {y}",
       "w.next.today": "Today {time}",
       "w.next.tomorrow": "Tomorrow {time}",
       "w.next.date": "{w}, {m} {d} · {time}",
@@ -179,6 +187,27 @@
     return out;
   }
 
+  function lastDate(day, today) {
+    var p = parseDay(day), cur = parseDay(today);
+    var zh = i18n.getLang() === "zh";
+    var key = p.y === cur.y ? "w.last.date" : "w.last.dateY";
+    return t(key, { y: p.y, m: zh ? p.m : EN_MONTHS[p.m - 1], d: p.d });
+  }
+  // 上次写作：日期、状态、评分、题目、每轮分数
+  function lastContent(h) {
+    var box = el("div", "last-content");
+    var it = h.last;
+    if (!it) { box.appendChild(el("p", "next-plain", t("w.last.none"))); return box; }
+    var head = el("div", "last-head");
+    head.appendChild(el("span", "last-day", lastDate(it.day, h.day)));
+    head.appendChild(el("span", "last-kind", t(it.kind === "done" ? "w.past.done" : "w.past.unfinished")));
+    if (it.kind === "done" && it.finalScore) head.appendChild(el("span", "score-badge", t("w.past.score", { s: it.finalScore })));
+    box.appendChild(head);
+    if (it.promptTitle) box.appendChild(el("p", "last-title", it.promptTitle));
+    if (it.scores && it.scores.length) box.appendChild(el("p", "last-steps", it.scores.map(function (s, i) { return t("w.past.round", { n: i + 1 }) + ": " + s; }).join(" → ")));
+    return box;
+  }
+
   function renderDaily() {
     safeRender("daily-body", "home", function (host, h) {
       var wrap = el("div", "progress-layout");
@@ -198,26 +227,40 @@
       left.appendChild(chartBlock(h));
       wrap.appendChild(left);
 
-      /* 右：下一次写作时间 + 按钮 */
-      var right = el("div", "assessment");
-      right.appendChild(el("div", "kv-label", t("w.next.label")));
-      var info = nextInfo(h.next);
-      right.appendChild(el("div", info.plain ? "next-plain" : "assessment-time", info.text));
-      if (info.badge) right.appendChild(el("div", "status-badge " + info.badgeCls, info.badge));
-      var acts = el("div", "card-actions");
-      var can = h.next.kind === "now";
-      var go = el(can ? "a" : "button", "card-btn primary", h.next.continuing ? t("w.btn.continue") : t("w.btn.start"));
-      go.id = "start-btn";
-      if (can) go.href = "/writing/write";
-      else { go.type = "button"; go.disabled = true; }
-      acts.appendChild(go);
+      /* 右：上次写作（过往写作按钮）+ 下次写作（马上开写按钮） */
+      var side = el("div", "daily-side");
+
+      var lastBox = el("div", "assessment last-box");
+      lastBox.id = "last-box";
+      lastBox.appendChild(el("div", "kv-label", t("w.last.label")));
+      lastBox.appendChild(lastContent(h));
+      var lacts = el("div", "card-actions");
       var past = el("button", "card-btn", t("w.btn.past"));
       past.type = "button";
       past.id = "past-btn";
       past.addEventListener("click", openPast);
-      acts.appendChild(past);
-      right.appendChild(acts);
-      wrap.appendChild(right);
+      lacts.appendChild(past);
+      lastBox.appendChild(lacts);
+      side.appendChild(lastBox);
+
+      var nextBox = el("div", "assessment next-box");
+      nextBox.id = "next-box";
+      nextBox.appendChild(el("div", "kv-label", t("w.next.label")));
+      var info = nextInfo(h.next);
+      nextBox.appendChild(el("div", info.plain ? "next-plain" : "assessment-time", info.text));
+      if (info.badge) nextBox.appendChild(el("div", "status-badge " + info.badgeCls, info.badge));
+      var nacts = el("div", "card-actions");
+      // 写作日里不管有没有到日程时间，都可以马上开始（日程时间只是提醒）
+      var can = h.next.kind === "now" || h.next.kind === "today";
+      var go = el(can ? "a" : "button", "card-btn primary", h.next.continuing ? t("w.btn.continue") : t("w.btn.start"));
+      go.id = "start-btn";
+      if (can) go.href = "/writing/write";
+      else { go.type = "button"; go.disabled = true; }
+      nacts.appendChild(go);
+      nextBox.appendChild(nacts);
+      side.appendChild(nextBox);
+
+      wrap.appendChild(side);
       host.appendChild(wrap);
       drawChart();
     });
