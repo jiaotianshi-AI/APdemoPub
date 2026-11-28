@@ -278,9 +278,9 @@ test("T21 数据取不到时只影响对应模块", async ({ page }) => {
 
 test("T23 模块副标题（进度、视频、问答；关联网站已无副标题）", async ({ page }) => {
   const exp = {
-    zh: { progress: "持续跟踪和推进当前学习进度，定时测试学习成果", videos: "精选/自选名师AP视频", qa: "AP相关全知道" },
+    zh: { progress: "本阶段学习进度和测试安排", videos: "精选/自选名师AP视频", qa: "AP相关全知道" },
     en: {
-      progress: "Track and move your current study progress forward, with scheduled tests of what you've learned",
+      progress: "Study progress and test schedule for this stage",
       videos: "Curated and self-picked AP videos from top teachers",
       qa: "Everything AP, answered"
     }

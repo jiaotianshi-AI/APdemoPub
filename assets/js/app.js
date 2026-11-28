@@ -96,7 +96,7 @@
       var wrap = el("div", "progress-layout");
 
       var left = el("div", "progress-main");
-      var cur = el("div", "kv");
+      var cur = el("div", "kv kv-inline");
       cur.appendChild(el("div", "kv-label", t("progress.current")));
       var curText;
       if (prog.subject && prog.unit) curText = t("progress.subjectUnit", { subject: prog.subject, unit: prog.unit });

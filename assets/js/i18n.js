@@ -13,8 +13,8 @@
       "error.module": "该模块暂时无法加载，请稍后刷新页面重试。",
 
       "mod.progress.title": "进度和测试",
-      "mod.progress.tagline": "持续跟踪和推进当前学习进度，定时测试学习成果",
-      "progress.current": "当前学习内容",
+      "mod.progress.tagline": "本阶段学习进度和测试安排",
+      "progress.current": "当前学习阶段",
       "progress.subjectUnit": "{subject} · {unit}",
       "progress.noSubject": "尚未设置学习科目",
       "progress.percent": "学习进度",
@@ -147,8 +147,8 @@
       "error.module": "This section could not be loaded right now. Please refresh the page and try again.",
 
       "mod.progress.title": "Progress and Tests",
-      "mod.progress.tagline": "Track and move your current study progress forward, with scheduled tests of what you've learned",
-      "progress.current": "Current study",
+      "mod.progress.tagline": "Study progress and test schedule for this stage",
+      "progress.current": "Current stage",
       "progress.subjectUnit": "{subject} · {unit}",
       "progress.noSubject": "No study subject set yet",
       "progress.percent": "Study progress",
