@@ -267,3 +267,16 @@ legend { padding: 0; font-weight: 600; }
   .prompt-item .btn { flex: 1 1 0; }
   .prompt-item .btn + .btn { margin-left: 0; }
 }
+
+/* 手机竖屏：写作记录、查看学生答题 */
+@media (max-width: 560px) {
+  .rec-title { flex: 1 1 100%; order: 2; }
+  .rec-head .badge { order: 3; }
+  .rec-day { order: 1; }
+  .rec-detail { padding: 10px; }
+  .rec-essay { font-size: 0.9375rem; padding: 8px; }
+  .view-q { display: flex; flex-wrap: wrap; align-items: center; gap: 0 12px; padding: 10px 12px; }
+  .view-q > p, .view-q > .answer-text, .view-q > a ~ a, .view-q > .btn { flex: 1 1 100%; }
+  .view-q > p { margin: 4px 0 0; font-size: 0.875rem; }
+  .answer-text { font-size: 0.9375rem; line-height: 1.5; padding: 8px 10px; }
+}
