@@ -181,8 +181,8 @@ test("督导者页：右上角“账号（时区）”；侧边栏显示学生�
   await page.request.post("/api/login", { headers: H, data: { username: sup.username, password: PASSWORD } });
   await page.goto("/supervisor");
   await expect(page.locator("#whoami")).toHaveText(`当前账号：${sup.username}（温哥华，时区：-7）`);
-  await expect(page.locator("#student-list")).toContainText("时区：北京，+8");
-  await expect(page.locator("#student-list")).toContainText("时区：东京，+9");
+  await expect(page.locator("#student-list")).toContainText("北京 +8");
+  await expect(page.locator("#student-list")).toContainText("东京 +9");
   await expect(page.locator("body")).not.toContainText("温哥华时间");
 
   await page.click("#new-btn");

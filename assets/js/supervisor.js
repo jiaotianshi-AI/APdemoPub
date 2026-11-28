@@ -205,11 +205,11 @@
       b.type = "button";
       b.setAttribute("aria-current", s.id === state.currentId ? "true" : "false");
       b.appendChild(el("span", "name", s.username));
-      b.appendChild(el("span", "sub", (s.subject ? s.subject : "未设置学习科目") + "　·　" + (s.direction === "writing" ? "写作" : "AP 自学")));
+      // 学生按钮：第二行只放“学习科目 · 所在时区”（时区只在这里显示一次）
+      b.appendChild(el("span", "sub", (s.subject ? s.subject : "未设置学习科目") + "　·　" + s.tzLabel.zh.replace("，", " ")));
       if (s.direction === "writing" && s.promptsLeft !== null && s.promptsLeft < s.lowPrompts) b.appendChild(el("span", "badge warn", "题目不足（剩 " + s.promptsLeft + "）"));
       if (s.direction === "writing" && s.writingFlags > 0) b.appendChild(el("span", "badge flag", "安全提醒（" + s.writingFlags + "）"));
       if (s.direction === "writing" && s.missedStreak >= 3) b.appendChild(el("span", "badge warn", "连续 " + s.missedStreak + " 天未完成"));
-      b.appendChild(el("span", "sub", "时区：" + s.tzLabel.zh));
       b.addEventListener("click", function () { selectStudent(s.id); });
       li.appendChild(b);
       ul.appendChild(li);
@@ -226,7 +226,7 @@
     renderStudents();
     var s = currentStudent();
     $("student-title").textContent = s ? s.username : "测试管理";
-    $("student-sub").textContent = s ? (s.subject ? "学习科目：" + s.subject : "管理员还没有为这位学生设置学习科目") + "　·　学生所在时区：" + s.tzLabel.zh : "";
+    $("student-sub").textContent = s ? (s.subject ? "学习科目：" + s.subject : "管理员还没有为这位学生设置学习科目") : "";
     // 写作板块的学生：这里还没有对应的内容（Writing 板块开发中），不显示 AP 测试管理
     var isWriting = !!s && s.direction === "writing";
     $("new-btn").hidden = isWriting;
