@@ -134,11 +134,14 @@ function sessionSummary(s) {
   const flags = db.prepare('SELECT COUNT(*) AS total, COALESCE(SUM(reviewed = 0), 0) AS open FROM writing_flags WHERE session_id = ?').get(s.id);
   const done = s.status === 'done';
   const ai = done && turns.length ? turns[turns.length - 1].score : null;
+  const lastEssay = turns.length ? db.prepare('SELECT essay FROM writing_turns WHERE session_id = ? AND round = ?').get(s.id, turns.length).essay : null;
+  const earlier = done && lastEssay !== null && lastEssay.replace(/\s+/g, ' ').trim() !== String(s.final_text || '').replace(/\s+/g, ' ').trim();
   return {
     id: s.id, day: s.day, promptTitle: s.prompt_title, status: done ? 'done' : 'unfinished', grade: s.grade || '',
     rounds: turns.length, scores: turns.map((t) => t.score), aiScore: ai,
     supervisorScore: g && g.supervisor_score ? g.supervisor_score : null, supervisorComment: (g && g.supervisor_comment) || '',
     finalScore: done ? ((g && g.supervisor_score) || ai) : null,
+    scoreFromEarlierVersion: earlier,
     flags: flags.total, openFlags: flags.open
   };
 }

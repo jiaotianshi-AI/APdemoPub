@@ -27,7 +27,7 @@ test("今天的任务：没有日程 / 暂停 / 今天不写 / 还没到时间 /
     expect([st.status(), (await st.json()).error]).toEqual([409, "NOT_AVAILABLE"]);
   }
   // 可以选题：列出还没写过的全部题目
-  db.prepare("UPDATE writing_schedules SET time_of_day = '00:00' WHERE student_id = ?").run(u.id);
+  db.prepare("UPDATE writing_schedules SET days = 127, time_of_day = '00:00' WHERE student_id = ?").run(u.id);
   const d = await today(ctx);
   expect(d.state).toBe("choose");
   expect(d.prompts.map((p) => p.title)).toEqual(["My best day", "My pet", "A trip I remember"]);
@@ -54,7 +54,7 @@ test("选题：写一个少一个；当天只能选一个；已用的题目不�
   expect(r.status()).toBe(200);
   const d = await r.json();
   expect(d.state).toBe("writing");
-  expect(d.session).toMatchObject({ promptTitle: "My pet", draft: "", rounds: 0, status: "writing", minRounds: 2, maxRounds: 6, canAdvice: true, canFinish: false });
+  expect(d.session).toMatchObject({ promptTitle: "My pet", draft: "", rounds: 0, status: "writing", minRounds: 2, maxRounds: 6, canAdvice: true, canFinish: true });
   expect((await start(prompts[0].id)).status()).toBe(409); // 当天只能选一个
   // 题目被标记为已用：督导者看到剩余 2 个，已用的不能改删
   expect(db.prepare("SELECT COUNT(*) AS n FROM writing_prompts WHERE student_id = ? AND used_at IS NULL").get(u.id).n).toBe(2);
@@ -151,7 +151,7 @@ test("写作页：提示语、选题、写作区、自动保存、字数；不�
   await expect(page.locator(".topic-line")).toHaveText("Topic: My pet");
   await expect(page.locator(".advice-card")).toContainText("Write a first draft");
   await expect(page.locator("#essay")).toBeVisible();
-  await expect(page.getByRole("button", { name: "I'm done" })).toHaveCount(0); // 第 2 轮之后才出现
+  await expect(page.getByRole("button", { name: "I'm done" })).toBeVisible(); // 任何时候都有“我写完了”
   await page.fill("#essay", "I have a little dog called Max.");
   await expect(page.locator(".essay-meta")).toContainText("7 words");
   await expect(page.locator(".save-state")).toHaveText("Saved");

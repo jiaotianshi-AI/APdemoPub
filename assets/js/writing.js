@@ -32,11 +32,13 @@
       progress: "Your progress",
       finalTitle: "Great job! Your essay is finished.",
       finalScore: "Final score",
+      noScore: "No score yet. Your parent or teacher can add one.",
+      earlierVersion: "This score is from an earlier version of your essay. Your latest essay is saved.",
       teacherSet: "Your parent or teacher set this score. The AI coach suggested ",
       teacherComment: "Comment from your parent or teacher",
       feedback: "Feedback",
       finalEssay: "Your final essay",
-      confirmFinish: "You will get your final score now. You cannot change this essay afterwards.",
+      confirmFinish: "Your essay will be saved and you will get your score now. You cannot change it afterwards.",
       pastNone: "Nothing here yet.",
       kindDone: "Finished",
       kindUnfinished: "Not finished",
@@ -179,12 +181,11 @@
     ui.adviceBtn.disabled = !s.canAdvice;
     ui.adviceBtn.addEventListener("click", function () { ask(s, false); });
     actions.appendChild(ui.adviceBtn);
-    if (s.canFinish) {
-      ui.doneBtn = el("button", "btn", T.done);
-      ui.doneBtn.type = "button";
-      ui.doneBtn.addEventListener("click", function () { confirmFinish(s); });
-      actions.appendChild(ui.doneBtn);
-    }
+    // “我写完了”任何时候都可以点：保存当前作文、给出分数并结束
+    ui.doneBtn = el("button", "btn", T.done);
+    ui.doneBtn.type = "button";
+    ui.doneBtn.addEventListener("click", function () { confirmFinish(s); });
+    actions.appendChild(ui.doneBtn);
     ui.msg = el("p", "msg", "");
     ui.msg.setAttribute("role", "alert");
     ui.msg.hidden = true;
@@ -327,8 +328,10 @@
     c.appendChild(el("p", "topic-line", T.topic + ": " + s.promptTitle));
     var big = el("p", "final-score");
     big.appendChild(el("span", "fs-label", T.finalScore));
-    big.appendChild(el("span", "fs-num", s.finalScore + T.outOf));
+    big.appendChild(el("span", "fs-num", s.finalScore ? s.finalScore + T.outOf : "—"));
     c.appendChild(big);
+    if (!s.finalScore) c.appendChild(el("p", "muted", T.noScore));
+    else if (s.scoreFromEarlierVersion && !s.supervisorScore) c.appendChild(el("p", "muted", T.earlierVersion));
     if (s.supervisorScore) c.appendChild(el("p", "muted", T.teacherSet + s.aiScore + T.outOf + "."));
     if (s.supervisorComment) { c.appendChild(el("h3", "", T.teacherComment)); c.appendChild(el("p", "feedback", s.supervisorComment)); }
     var last = lastTurn(s);
@@ -351,7 +354,7 @@
         head.appendChild(el("span", "h-day", fmtDay(it.day)));
         head.appendChild(el("span", "h-kind", it.kind === "done" ? T.kindDone : it.kind === "unfinished" ? T.kindUnfinished : T.kindMissed));
         if (it.promptTitle) head.appendChild(el("span", "h-title", it.promptTitle));
-        if (it.kind === "done") head.appendChild(el("span", "score-badge", T.score + " " + it.finalScore + T.outOf));
+        if (it.kind === "done" && it.finalScore) head.appendChild(el("span", "score-badge", T.score + " " + it.finalScore + T.outOf));
         li.appendChild(head);
         if (it.scores.length) li.appendChild(el("p", "h-steps", it.scores.map(function (s, i) { return T.round + (i + 1) + ": " + s; }).join(" → ")));
         if (it.kind === "done") {

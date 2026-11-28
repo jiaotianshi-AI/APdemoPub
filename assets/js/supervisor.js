@@ -310,7 +310,7 @@
     head.appendChild(el("span", "rec-title", r.promptTitle));
     head.appendChild(el("span", "badge" + (r.status === "done" ? " graded" : " tag"), r.status === "done" ? "已完成" : "没写完"));
     if (r.status === "done") {
-      head.appendChild(el("span", "badge", "AI " + r.aiScore + " / 5"));
+      head.appendChild(el("span", "badge", r.aiScore ? "AI " + r.aiScore + " / 5" : "AI 没有评分"));
       if (r.supervisorScore) head.appendChild(el("span", "badge graded", "你改为 " + r.supervisorScore + " / 5"));
     }
     if (r.openFlags > 0) head.appendChild(el("span", "badge flag", "安全提醒"));
@@ -384,7 +384,7 @@
   function recordGradeForm(d) {
     var f = el("div", "rec-grade");
     f.appendChild(el("h3", "", "评分（孩子能看到）"));
-    f.appendChild(el("p", "muted", "AI 的建议分是 " + d.aiScore + " / 5。你可以改成别的分数并写一句评语；改过的分数以你的为准。"));
+    f.appendChild(el("p", "muted", (d.aiScore ? "AI 的建议分是 " + d.aiScore + " / 5" + (d.scoreFromEarlierVersion ? "（来自更早一版作文）" : "") + "。" : "AI 没有给这篇作文评分（孩子在评分前点了“我写完了”，或 AI 当时不可用）。") + "你可以给出分数并写一句评语；你给的分数以你的为准。"));
     var wrap = el("div", "score-radios");
     wrap.setAttribute("role", "radiogroup");
     wrap.setAttribute("aria-label", d.day + " 的评分");

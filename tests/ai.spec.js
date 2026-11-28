@@ -661,12 +661,14 @@ test("督导者页：AI 出错时在这道题下面显示错误（不影响其�
   await expect(row.locator(".ai-status")).toContainText("需要补充：学生答案");
   // 上传回答 PDF（含 HTTP500 标记 → 模拟 AI 服务出错）
   await row.locator("input[type=file][aria-label*='回答 PDF']").setInputFiles({ name: "回答.pdf", mimeType: "application/pdf", buffer: pdf("HTTP500 ANSWER") });
+  await expect(row.locator(".ans-line .fname").first()).toHaveText("回答.pdf"); // 等上传完成，再请求 AI
   await askAi(page, row, "Q1");
   await expect(row.locator(".ai-status")).toContainText("暂时不可用");
   await expect(row.locator(".ai-status")).toHaveClass(/bad/);
   await expect(row.locator(".ai-score")).toHaveCount(0);
   // 换一个回答 PDF 后成功
   await row.locator("input[type=file][aria-label*='回答 PDF']").setInputFiles({ name: "回答2.pdf", mimeType: "application/pdf", buffer: pdf("ANSWER SCORE=5") });
+  await expect(row.locator(".ans-line .fname").first()).toHaveText("回答2.pdf");
   await askAi(page, row, "Q1");
   await expect(row.locator(".ai-score")).toHaveText("AI 建议评分：5 / 5");
   await expect(row.locator(".ai-meta")).toContainText("学生 PDF 答案");
@@ -1027,7 +1029,7 @@ test("写作：请提建议循环——每轮打分 + 5W 提问；回答并改�
   expect(r.status(), await r.text()).toBe(200);
   let d = await r.json();
   expect(d.state).toBe("writing");
-  expect(d.session).toMatchObject({ rounds: 1, canAdvice: true, canFinish: false, status: "writing" });
+  expect(d.session).toMatchObject({ rounds: 1, canAdvice: true, canFinish: true, status: "writing" }); // “我写完了”任何时候都可以点
   const t1 = d.session.turns[0];
   expect([t1.round, t1.score, t1.done]).toEqual([1, 3, false]);
   expect(t1.questions).toHaveLength(2);
@@ -1061,7 +1063,7 @@ test("写作：请提建议循环——每轮打分 + 5W 提问；回答并改�
   d = await r.json();
   expect(d.session.turns.map((t) => t.score)).toEqual([3, 4]);
   expect(d.session.turns[1].questions).toHaveLength(2);
-  expect(d.session.canFinish).toBe(true); // 第 2 轮之后可以“我写完了”
+  expect(d.session.canFinish).toBe(true);
   const second = (await reqs(admin))[1].blocks[0].text;
   expect(second).toContain("Round: 2 of at most 6");
   expect(second).toContain("<previous_essay>\n" + SHORT + "\n</previous_essay>");
@@ -1071,7 +1073,7 @@ test("写作：请提建议循环——每轮打分 + 5W 提问；回答并改�
   r = await advice(ctx, { text: LONG, answers: ["a picnic", "park"] });
   d = await r.json();
   expect(d.state).toBe("done");
-  expect(d.session).toMatchObject({ status: "done", rounds: 3, finalScore: 5, canAdvice: false, canFinish: false, finalText: LONG });
+  expect(d.session).toMatchObject({ status: "done", rounds: 3, finalScore: 5, canAdvice: false, canFinish: false, finalText: LONG, scoreFromEarlierVersion: false });
   expect(d.session.turns[2]).toMatchObject({ score: 5, done: true, questions: [] });
   // 结束后不能再改、不能再请建议
   expect((await ctx.put("/api/writing/draft", { headers: H, data: { text: "x" } })).status()).toBe(409);
@@ -1086,16 +1088,13 @@ test("写作：请提建议循环——每轮打分 + 5W 提问；回答并改�
   await ctx.dispose(); await admin.dispose();
 });
 
-test("写作：第 1 轮不会结束；第 6 轮一定结束；至少 2 轮之后才能“我写完了”", async ({ playwright, baseURL }) => {
+test("写作：第 1 轮 AI 不会判定结束；第 6 轮一定结束", async ({ playwright, baseURL }) => {
   const admin = await adminCtx(playwright, baseURL);
   await configure(admin);
   const { ctx } = await writingScenario(playwright, baseURL);
   // 第 1 轮：即使 AI 说 OK（含 DONE 的作文），程序也不让结束
   let d = await (await advice(ctx, { text: LONG + " DONE", answers: [] })).json();
   expect([d.state, d.session.rounds, d.session.turns[0].done, d.session.turns[0].questions.length > 0]).toEqual(["writing", 1, false, true]);
-  // 少于 2 轮：不能“我写完了”
-  let r = await finish(ctx, { text: LONG + " DONE", answers: ["a"] });
-  expect([r.status(), (await r.json()).error]).toEqual([409, "TOO_EARLY"]);
   // 用新学生做完整的 6 轮
   const s6 = await writingScenario(playwright, baseURL);
   let cur = SHORT;
@@ -1239,7 +1238,7 @@ test("写作页（界面）：选题 → 写第一稿 → 请提建议 → 回�
   // 我写完了（有确认）
   await page.fill("#ans-0", "my sister");
   await page.getByRole("button", { name: "I'm done" }).click();
-  await expect(page.locator("#confirm-message")).toContainText("You cannot change this essay");
+  await expect(page.locator("#confirm-message")).toContainText("Your essay will be saved and you will get your score now");
   await page.locator("#confirm-ok").click();
   await expect(page.getByRole("heading", { name: "Great job! Your essay is finished." })).toBeVisible();
   await expect(page.locator(".fs-num")).toHaveText("4 / 5");
@@ -1397,5 +1396,116 @@ test("写作页：AI 标记了安全内容时，孩子看到一条温和的固�
   await page.fill("#ans-0", "my sister");
   await page.getByRole("button", { name: "Give me some advice" }).click();
   await expect(page.locator(".advice-card .round-no")).toHaveText("Round 2");
+  await admin.dispose();
+});
+
+
+test("写作：“我写完了”任何时候都能点——保存当前作文和分数并结束（不要求轮数、不要求回答问题）", async ({ playwright, baseURL }) => {
+  const admin = await adminCtx(playwright, baseURL);
+  await configure(admin);
+  const { db } = require("../server/db");
+  const row = (u) => db.prepare("SELECT s.status, s.final_text, g.ai_score FROM writing_sessions s LEFT JOIN writing_grades g ON g.session_id = s.id WHERE s.student_id = ?").get(u.id);
+
+  // 1. 一轮都没请过建议：请 AI 给当前作文打一个最终分数，然后结束
+  let { ctx, u } = await writingScenario(playwright, baseURL);
+  await resetMock(admin);
+  let d = await (await finish(ctx, { text: MID, answers: [] })).json();
+  expect([d.state, d.session.finalScore, d.session.rounds, d.session.finalText, d.session.turns[0].done, d.session.turns[0].questions]).toEqual(["done", 4, 1, MID, true, []]);
+  expect(await reqs(admin)).toHaveLength(1);
+  expect((await reqs(admin))[0].blocks[0].text).toContain("the child chose to finish");
+  expect(row(u)).toEqual({ status: "done", final_text: MID, ai_score: 4 });
+  await ctx.dispose();
+
+  // 2. 第 1 轮有问题但没回答、也没改作文：直接用第 1 轮的分数结束（不再提示“请先回答问题”）
+  ({ ctx, u } = await writingScenario(playwright, baseURL));
+  await advice(ctx, { text: SHORT, answers: [] });
+  await resetMock(admin);
+  d = await (await finish(ctx, { text: SHORT, answers: ["", ""] })).json();
+  expect([d.state, d.session.finalScore, d.session.rounds]).toEqual(["done", 3, 1]);
+  expect(await reqs(admin)).toHaveLength(0);
+  await ctx.dispose();
+
+  // 3. 第 1 轮有问题没回答，作文改了：给改过的作文打最终分数并结束
+  ({ ctx, u } = await writingScenario(playwright, baseURL));
+  await advice(ctx, { text: SHORT, answers: [] });
+  d = await (await finish(ctx, { text: MID, answers: [] })).json();
+  expect([d.state, d.session.finalScore, d.session.rounds, d.session.finalText]).toEqual(["done", 4, 2, MID]);
+  await ctx.dispose();
+
+  // 4. AI 出错：照样保存当前作文并结束，分数沿用上一轮的，页面说明“分数来自更早一版”
+  ({ ctx, u } = await writingScenario(playwright, baseURL));
+  await advice(ctx, { text: SHORT, answers: [] });
+  const bad = MID + " HTTP500";
+  const r = await finish(ctx, { text: bad, answers: [] });
+  expect(r.status()).toBe(200);
+  d = await r.json();
+  expect([d.state, d.session.finalText, d.session.finalScore, d.session.aiScore, d.session.scoreFromEarlierVersion, d.session.rounds]).toEqual(["done", bad, 3, 3, true, 1]);
+  expect(row(u)).toEqual({ status: "done", final_text: bad, ai_score: 3 });
+  await ctx.dispose();
+
+  // 5. 没有配置 AI / 第一轮之前就出错：保存作文并结束，没有分数（督导者以后可以补）
+  ({ ctx, u } = await writingScenario(playwright, baseURL));
+  d = await (await finish(ctx, { text: MID + " HTTP500", answers: [] })).json();
+  expect([d.state, d.session.finalScore, d.session.aiScore, d.session.rounds]).toEqual(["done", null, null, 0]);
+  expect(row(u).ai_score).toBeNull();
+  await ctx.dispose();
+  await putAi(admin, { provider: "anthropic", clearKey: true });
+  ({ ctx, u } = await writingScenario(playwright, baseURL));
+  d = await (await finish(ctx, { text: MID, answers: [] })).json();
+  expect([d.state, d.session.finalText, d.session.finalScore]).toEqual(["done", MID, null]);
+  await ctx.dispose();
+  await configure(admin);
+
+  // 6. 作文是空的、或只有一两个词：不调用 AI，保存并结束
+  ({ ctx, u } = await writingScenario(playwright, baseURL));
+  await resetMock(admin);
+  d = await (await finish(ctx, { text: "Hi", answers: [] })).json();
+  expect([d.state, d.session.finalText, d.session.finalScore]).toEqual(["done", "Hi", null]);
+  expect(await reqs(admin)).toHaveLength(0);
+  ({ ctx, u } = await writingScenario(playwright, baseURL));
+  d = await (await finish(ctx, { text: "", answers: [] })).json();
+  expect([d.state, d.session.finalText]).toEqual(["done", ""]);
+  // 结束后不能再改，也不能再点
+  expect((await finish(ctx, { text: "x", answers: [] })).status()).toBe(409);
+
+  // 7. 督导者页里：没有 AI 分数的作文可以由督导者打分；孩子页面能看到
+  const sup = await makeUser("supervisor", "fdone");
+  linkSupervisor(sup.id, u.id);
+  const sctx = await loginCtx(playwright, baseURL, sup.username);
+  const sid = db.prepare("SELECT id FROM writing_sessions WHERE student_id = ?").get(u.id).id;
+  const sum = (await (await sctx.get(`/api/supervisor/writing/students/${u.id}/sessions`)).json()).sessions[0];
+  expect([sum.status, sum.aiScore, sum.finalScore]).toEqual(["done", null, null]);
+  const g = await (await sctx.put(`/api/supervisor/writing/sessions/${sid}/grade`, { headers: H, data: { score: 4, comment: "Good effort" } })).json();
+  expect([g.aiScore, g.supervisorScore, g.finalScore]).toEqual([null, 4, 4]);
+  expect((await todayOf(ctx)).session.finalScore).toBe(4);
+  await ctx.dispose(); await sctx.dispose(); await admin.dispose();
+});
+
+
+test("写作页（界面）：第一轮后还没回答问题就点“I'm done”——直接保存并结束，不再出现“Please answer at least one question first.”", async ({ page, playwright, baseURL }) => {
+  const admin = await adminCtx(playwright, baseURL);
+  await configure(admin);
+  const u = await makeWritingStudent({ startDate: new Date().toISOString().slice(0, 10) });
+  await page.request.post("/api/login", { headers: H, data: { username: u.username, password: PASSWORD } });
+  await page.goto("/writing");
+  await page.locator(".topic-btn").first().click();
+  // 没请过建议就能点：写了一点就结束
+  await expect(page.getByRole("button", { name: "I'm done" })).toBeVisible();
+  await page.fill("#essay", SHORT);
+  await page.getByRole("button", { name: "Give me some advice" }).click();
+  await expect(page.locator(".q-item")).toHaveCount(2);
+  // 问题没回答、作文也改了一点，直接点“I'm done”
+  await page.fill("#essay", MID);
+  await page.getByRole("button", { name: "I'm done" }).click();
+  await expect(page.locator("#confirm-ok")).toBeVisible();
+  await page.locator("#confirm-ok").click();
+  await expect(page.getByRole("heading", { name: "Great job! Your essay is finished." })).toBeVisible();
+  await expect(page.locator(".fs-num")).toHaveText("4 / 5");
+  await expect(page.locator(".final-essay")).toHaveText(MID);
+  await expect(page.locator("body")).not.toContainText("Please answer at least one question first");
+  await expect(page.locator(".essay-card .msg.error")).toHaveCount(0);
+  // 之后不能再写
+  await page.reload();
+  await expect(page.locator("#essay")).toHaveCount(0);
   await admin.dispose();
 });

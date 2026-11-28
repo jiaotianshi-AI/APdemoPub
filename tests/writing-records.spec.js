@@ -167,6 +167,7 @@ test("督导者页：写作记录——展开回看每一轮、修改评分并�
   await expect(page.locator("#w-flag-banner")).toContainText("1 条 AI 标记的安全内容还没查看");
   const items = page.locator("#w-records .rec-item");
   await expect(items).toHaveCount(2);
+  await page.waitForLoadState("networkidle"); // 选中学生会再加载一次记录；等它完成，免得展开的内容被刷新掉
   await expect(items.first()).toContainText("My best day");
   await expect(items.first()).toContainText("已完成");
   await expect(items.first()).toContainText("AI 4 / 5");

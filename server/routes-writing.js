@@ -47,6 +47,7 @@ function sessionView(s) {
   const p = s.prompt_id ? db.prepare('SELECT hint FROM writing_prompts WHERE id = ?').get(s.prompt_id) : null;
   const last = turns[turns.length - 1] || null;
   const done = s.status === 'done';
+  const lastRow = db.prepare('SELECT essay FROM writing_turns WHERE session_id = ? ORDER BY round DESC LIMIT 1').get(s.id);
   const g = db.prepare('SELECT ai_score, supervisor_score, supervisor_comment FROM writing_grades WHERE session_id = ?').get(s.id);
   const aiScore = done && last ? last.score : null;
   return {
@@ -57,7 +58,8 @@ function sessionView(s) {
     supervisorComment: (g && g.supervisor_comment) || '',
     finalScore: done ? ((g && g.supervisor_score) || aiScore) : null, // 督导者改过分就以督导者的为准
     canAdvice: !done && turns.length < MAX_ROUNDS,
-    canFinish: !done && turns.length >= MIN_ROUNDS
+    canFinish: !done, // “我写完了”任何时候都可以点
+    scoreFromEarlierVersion: done && !!lastRow && normText(lastRow.essay) !== normText(s.final_text || ''), // 分数是更早一版作文的
   };
 }
 
@@ -145,8 +147,38 @@ async function autosave(req, res, ctx) {
   sendJson(res, 200, { ok: true });
 }
 
-// 一轮：校验 → 调用 AI → 保存这一轮；AI 判定 OK（或最后一轮）则结束
-async function round(req, res, ctx, { force }) {
+// 调用 AI 并保存这一轮；AI 判定 OK（或 finish / 最后一轮）则结束。出错时不留下半截的一轮
+async function callRound(stu, s, cfg, turns, text, finish) {
+  const prev = turns[turns.length - 1] || null;
+  const roundNo = turns.length + 1;
+  let r;
+  try {
+    r = await writingAi.advice(cfg, {
+      gradeCode: s.grade, topic: s.prompt_title, round: roundNo, maxRounds: MAX_ROUNDS, minRounds: MIN_ROUNDS, essay: text,
+      previous: prev ? { round: prev.round, score: prev.score, essay: prev.essay } : null, finish
+    });
+  } catch (e) {
+    audit(stu.username, 'writing_advice_failed', null, e && e.code ? e.code : 'ERROR');
+    throw httpError(e instanceof ai.AiError ? e.status : 502, (e && e.code) || 'AI_ERROR', e instanceof ai.AiError ? e.message : 'AI 出错了，请稍后再试。');
+  }
+  const now = new Date().toISOString();
+  transaction(() => {
+    db.prepare('INSERT INTO writing_turns (session_id, round, essay, score, feedback, questions, done, flag, input_tokens, output_tokens, model, provider, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(s.id, roundNo, text, r.score, r.feedback, JSON.stringify(r.questions), r.done ? 1 : 0, r.safety ? 1 : 0, r.inputTokens || null, r.outputTokens || null, r.model || null, r.provider || null, now);
+    if (r.done) {
+      db.prepare("UPDATE writing_sessions SET status = 'done', final_text = ?, finished_at = ? WHERE id = ?").run(text, now, s.id);
+      db.prepare(`INSERT INTO writing_grades (session_id, ai_score, model, provider, updated_at) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(session_id) DO UPDATE SET ai_score = excluded.ai_score, model = excluded.model, provider = excluded.provider, updated_at = excluded.updated_at`)
+        .run(s.id, r.score, r.model, r.provider, now);
+    }
+    if (r.safety) db.prepare('INSERT INTO writing_flags (session_id, reason, created_at) VALUES (?, ?, ?)').run(s.id, 'AI flagged round ' + roundNo, now);
+  });
+  audit(stu.username, 'writing_round', null, `round ${roundNo} score ${r.score}${r.done ? ' done' : ''}`);
+  return r;
+}
+
+// “请提建议”：一轮。校验 → 调用 AI → 保存这一轮
+async function advice(req, res, ctx) {
   const { stu, s } = requireWriting(ctx);
   const body = await readJson(req);
   const text = cleanText(body.text);
@@ -154,61 +186,52 @@ async function round(req, res, ctx, { force }) {
   saveDraft(s, text, answers); // 先保存，后面任何一步失败都不会丢内容
   const turns = db.prepare('SELECT * FROM writing_turns WHERE session_id = ? ORDER BY round').all(s.id);
   const prev = turns[turns.length - 1] || null;
-
-  if (force) {
-    if (turns.length < MIN_ROUNDS) throw httpError(409, 'TOO_EARLY', `至少要完成 ${MIN_ROUNDS} 轮之后才能结束。`);
-    if (prev && normText(prev.essay) === normText(text)) return finishWithLast(res, ctx, s, prev); // 没有改动：直接用上一轮的分数结束
-  }
   if (turns.length >= MAX_ROUNDS) throw httpError(409, 'MAX_ROUNDS', `最多 ${MAX_ROUNDS} 轮。`);
   if (words(text).length < 3) throw httpError(422, 'TOO_SHORT', '请先写几句话，再请提建议。');
   if (prev) {
     const prevAnswers = parseJson(prev.answers, []);
     if (parseJson(prev.questions, []).length && !prevAnswers.some((a) => a && a.trim())) throw httpError(422, 'NEED_ANSWER', '请先回答至少一个问题，再改写作文。');
-    if (!force && !meaningfulChange(prev.essay, text)) throw httpError(422, 'NO_CHANGE', '请先把你的回答加入到作文中去，再请提建议。');
+    if (!meaningfulChange(prev.essay, text)) throw httpError(422, 'NO_CHANGE', '请先把你的回答加入到作文中去，再请提建议。');
   }
   const cfg = settings.activeConfig();
   if (!cfg) throw httpError(409, 'AI_NOT_CONFIGURED', 'AI 还没有配置，请联系管理员。');
-  const last = lastAdvice.get(s.id) || 0;
-  if (new Date().getTime() - last < config.writingMinIntervalMs) throw httpError(429, 'TOO_FAST', '请稍等几秒再试。');
+  if (new Date().getTime() - (lastAdvice.get(s.id) || 0) < config.writingMinIntervalMs) throw httpError(429, 'TOO_FAST', '请稍等几秒再试。');
   if (busy.has(s.id)) throw httpError(409, 'AI_BUSY', '正在处理中，请稍等。');
   busy.add(s.id);
   lastAdvice.set(s.id, new Date().getTime());
-  try {
-    const roundNo = turns.length + 1;
-    let r;
-    try {
-      r = await writingAi.advice(cfg, {
-        gradeCode: s.grade, topic: s.prompt_title, round: roundNo, maxRounds: MAX_ROUNDS, minRounds: MIN_ROUNDS, essay: text,
-        previous: prev ? { round: prev.round, score: prev.score, essay: prev.essay } : null, finish: force
-      });
-    } catch (e) {
-      audit(stu.username, 'writing_advice_failed', null, e && e.code ? e.code : 'ERROR');
-      throw httpError(e instanceof ai.AiError ? e.status : 502, (e && e.code) || 'AI_ERROR', e instanceof ai.AiError ? e.message : 'AI 出错了，请稍后再试。');
-    }
-    const now = new Date().toISOString();
-    transaction(() => {
-      db.prepare('INSERT INTO writing_turns (session_id, round, essay, score, feedback, questions, done, flag, input_tokens, output_tokens, model, provider, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(s.id, roundNo, text, r.score, r.feedback, JSON.stringify(r.questions), r.done ? 1 : 0, r.safety ? 1 : 0, r.inputTokens || null, r.outputTokens || null, r.model || null, r.provider || null, now);
-      if (r.done) {
-        db.prepare("UPDATE writing_sessions SET status = 'done', final_text = ?, finished_at = ? WHERE id = ?").run(text, now, s.id);
-        db.prepare(`INSERT INTO writing_grades (session_id, ai_score, model, provider, updated_at) VALUES (?, ?, ?, ?, ?)
-          ON CONFLICT(session_id) DO UPDATE SET ai_score = excluded.ai_score, model = excluded.model, provider = excluded.provider, updated_at = excluded.updated_at`)
-          .run(s.id, r.score, r.model, r.provider, now);
-      }
-      if (r.safety) db.prepare('INSERT INTO writing_flags (session_id, reason, created_at) VALUES (?, ?, ?)').run(s.id, 'AI flagged round ' + roundNo, now);
-    });
-    audit(stu.username, 'writing_round', null, `round ${roundNo} score ${r.score}${r.done ? ' done' : ''}`);
-  } finally { busy.delete(s.id); }
+  try { await callRound(stu, s, cfg, turns, text, false); } finally { busy.delete(s.id); }
   return today(res, ctx);
 }
 
-function finishWithLast(res, ctx, s, last) {
+// “我写完了”：任何时候都可以点（不要求轮数、不要求回答问题）：保存当前的作文，并给出分数，然后结束。
+//   · 作文和上一轮一样：直接用上一轮的分数；
+//   · 否则请 AI 给当前这版作文打一个最终分数（不再提问）；
+//   · AI 没配置/出错/作文太短：照样保存作文并结束，分数沿用上一轮的（还没有过评分就没有分数，督导者以后可以补）。
+async function finish(req, res, ctx) {
+  const { stu, s } = requireWriting(ctx);
+  const body = await readJson(req);
+  const text = cleanText(body.text);
+  saveDraft(s, text, cleanAnswers(body.answers));
+  const turns = db.prepare('SELECT * FROM writing_turns WHERE session_id = ? ORDER BY round').all(s.id);
+  const prev = turns[turns.length - 1] || null;
+  if (prev && normText(prev.essay) === normText(text)) return finishWithoutNewScore(res, ctx, s, text, prev);
+  const cfg = settings.activeConfig();
+  if (cfg && turns.length < MAX_ROUNDS && words(text).length >= 3 && !busy.has(s.id)) {
+    busy.add(s.id);
+    lastAdvice.set(s.id, new Date().getTime());
+    try { await callRound(stu, s, cfg, turns, text, true); return today(res, ctx); } catch (e) { /* 已记入审计日志；下面照样保存并结束 */ } finally { busy.delete(s.id); }
+  }
+  return finishWithoutNewScore(res, ctx, s, text, prev);
+}
+
+// 保存当前作文并结束；分数用上一轮的（没有就没有）
+function finishWithoutNewScore(res, ctx, s, text, prev) {
   const now = new Date().toISOString();
   transaction(() => {
-    db.prepare('UPDATE writing_turns SET done = 1 WHERE id = ?').run(last.id);
-    db.prepare("UPDATE writing_sessions SET status = 'done', final_text = ?, finished_at = ? WHERE id = ?").run(last.essay, now, s.id);
+    if (prev) db.prepare('UPDATE writing_turns SET done = 1 WHERE id = ?').run(prev.id);
+    db.prepare("UPDATE writing_sessions SET status = 'done', final_text = ?, finished_at = ? WHERE id = ?").run(text, now, s.id);
     db.prepare(`INSERT INTO writing_grades (session_id, ai_score, updated_at) VALUES (?, ?, ?)
-      ON CONFLICT(session_id) DO UPDATE SET ai_score = excluded.ai_score, updated_at = excluded.updated_at`).run(s.id, last.score, now);
+      ON CONFLICT(session_id) DO UPDATE SET ai_score = excluded.ai_score, updated_at = excluded.updated_at`).run(s.id, prev ? prev.score : null, now);
   });
   return today(res, ctx);
 }
@@ -238,8 +261,8 @@ module.exports = async function writingApi(req, res, pathname, ctx) {
   if (pathname === '/api/writing/today' && req.method === 'GET') return today(res, ctx);
   if (pathname === '/api/writing/start' && req.method === 'POST') return start(req, res, ctx);
   if (pathname === '/api/writing/draft' && req.method === 'PUT') return autosave(req, res, ctx);
-  if (pathname === '/api/writing/advice' && req.method === 'POST') return round(req, res, ctx, { force: false });
-  if (pathname === '/api/writing/finish' && req.method === 'POST') return round(req, res, ctx, { force: true });
+  if (pathname === '/api/writing/advice' && req.method === 'POST') return advice(req, res, ctx);
+  if (pathname === '/api/writing/finish' && req.method === 'POST') return finish(req, res, ctx);
   if (pathname === '/api/writing/history' && req.method === 'GET') return history(res, ctx);
   throw httpError(404, 'NOT_FOUND', '接口不存在。');
 };
