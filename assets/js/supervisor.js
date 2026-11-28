@@ -589,12 +589,12 @@
       row.appendChild(ql);
       row.appendChild(el("span", "q-weight", "×" + (q.weight || 1)));
       // 回答文字：学生用屏幕输入作答时才有；纸质作答或还没作答显示 —
-      var tcell = el("span");
-      if (q.answerText === null || q.answerText === undefined) tcell.appendChild(el("span", "muted", "—"));
+      var tcell = el("span", "q-text");
+      if (q.answerText === null || q.answerText === undefined) { tcell.classList.add("is-empty"); tcell.appendChild(el("span", "muted", "—")); }
       else if (q.answerText.trim() === "") tcell.appendChild(el("span", "muted", "（没有填写）"));
       else { var snip = el("div", "answer-snippet", q.answerText); snip.title = q.answerText; tcell.appendChild(snip); }
       row.appendChild(tcell);
-      var cell = el("span");
+      var cell = el("span", "q-ans");
       if (q.answerFile) {
         var al = el("a", "file-link", shortName(q.answerFile.name));
         al.title = q.answerFile.name;
@@ -603,9 +603,9 @@
         al.rel = "noopener noreferrer";
         al.setAttribute("aria-label", q.label + " 回答：" + q.answerFile.name + "（在新标签页打开）");
         cell.appendChild(al);
-      } else cell.appendChild(el("span", "muted", "—"));
+      } else { cell.classList.add("is-empty"); cell.appendChild(el("span", "muted", "—")); }
       row.appendChild(cell);
-      row.appendChild(el("span", q.score ? "q-score" : "muted", q.score ? q.score + " / 5" : "—"));
+      row.appendChild(el("span", "q-sc " + (q.score ? "q-score" : "muted"), q.score ? q.score + " / 5" : "—"));
       wrap.appendChild(row);
     });
     return wrap;
@@ -628,8 +628,8 @@
     }
     item("测试时间", fmtWall(a.scheduledWall));
     item("测试时长", a.durationMinutes + " 分钟");
-    item("本单元开始学习", fmtDate(a.unitStartDate));
     item("汇总评分", overallText(a), a.score ? "score" : "");
+    item("本单元开始学习", fmtDate(a.unitStartDate));
     c.appendChild(meta);
     c.appendChild(questionTable(a));
     if (a.answerFiles && a.answerFiles.length) c.appendChild(fileRow("其他答题文件（旧数据）", a.answerFiles));

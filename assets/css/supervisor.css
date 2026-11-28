@@ -79,6 +79,15 @@ legend { padding: 0; font-weight: 600; }
   .content h1 { font-size: 1.25rem; }
   .content-head .btn { flex: none; }
   .group-title { margin: 14px 0 6px; }
+  /* 测试卡片：测试时间和“本单元开始学习”各占一行，时长和评分并排 */
+  .test-card { padding: 12px 14px; margin-bottom: 10px; }
+  .test-card h3 { font-size: 1.0625rem; }
+  .meta { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; margin-top: 8px; }
+  .meta div:nth-child(1), .meta div:nth-child(4) { grid-column: 1 / -1; }
+  .meta dt { font-size: 0.75rem; }
+  .meta dd { font-size: 0.9375rem; }
+  .card-actions { margin-top: 8px; }
+  .card-actions .btn { flex: 1 1 auto; padding: 0 10px; }
   .status { margin-top: 4px; min-height: 0; }
   .status:empty { display: none; }
 }
@@ -220,3 +229,13 @@ legend { padding: 0; font-weight: 600; }
 .rec-grade { margin-top: 10px; }
 .rec-grade textarea { width: 100%; box-sizing: border-box; font: inherit; padding: 8px 10px; border: 1px solid #94a3b8; border-radius: 10px; }
 .badge.flag { background: #ffedd5; color: #9a3412; }
+
+/* 手机：题目表格每题最多两三行——第一行 题号 · 问题 PDF · 权重 · 评分；有回答文字/回答 PDF 时才多出对应行 */
+@media (max-width: 800px) {
+  .q-row { grid-template-columns: 2.6em minmax(0, 1fr) auto auto; gap: 0 10px; padding: 0 12px; }
+  .q-row > .q-sc { grid-column: 4; grid-row: 1; text-align: right; }
+  .q-row > .q-text { grid-column: 2 / -1; }
+  .q-row > .q-ans { grid-column: 2 / -1; }
+  .q-row > .q-text.is-empty, .q-row > .q-ans.is-empty { display: none; }
+  .q-row > .q-text:not(.is-empty) { padding: 0 0 6px; }
+}
