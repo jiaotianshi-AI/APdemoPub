@@ -152,7 +152,7 @@
       "progress.subjectUnit": "{subject} · {unit}",
       "progress.noSubject": "No study subject set yet",
       "progress.percent": "Study progress",
-      "progress.assessmentTime": "Due time for this stage test",
+      "progress.assessmentTime": "Due time for stage test",
       "progress.countdown.dh": "You have {d} d {h} h left",
       "progress.countdown.hm": "You have {h} h {m} min left",
       "progress.countdown.m": "You have {m} min left",
