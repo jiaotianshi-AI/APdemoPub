@@ -122,7 +122,7 @@ test("T8 进度块：进度 = 本单元开始日到测试时间已走过的比�
   await expect(page.locator("#progress-body")).toContainText("AP Biology · Unit 2");
   await page.click('.lang-btn[data-lang="en"]');
   await expect(page.locator("#progress-body")).toContainText("AP Biology · Unit 2");
-  await expect(page.locator("#progress-body")).toContainText("Latest time to finish this stage test");
+  await expect(page.locator("#progress-body")).toContainText("Due time for this stage test");
 });
 
 test("T8 进度的边界：开始前为 0%，测试时间之后为 100%", async ({ page }) => {

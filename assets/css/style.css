@@ -62,7 +62,7 @@ a { color: var(--c-primary); }
 
 /* ---------- 主模块：进度和测试 ---------- */
 .module-primary { padding: 36px 40px 40px; border: 2px solid var(--c-primary); background: linear-gradient(135deg, var(--c-primary-soft) 0%, #ffffff 70%); box-shadow: var(--shadow-strong); }
-.module-primary .module-title { font-size: 2.5rem; color: var(--c-primary-dark); }
+.module-primary .module-title { font-size: 1.75rem; color: var(--c-primary-dark); }
 .module-primary .tagline { font-size: 1.0625rem; color: var(--c-text); margin-top: 4px; }
 .module-primary .module-body { margin-top: 32px; }
 .progress-layout { display: grid; grid-template-columns: 1.5fr 1fr; gap: 32px; align-items: stretch; }
@@ -137,7 +137,7 @@ a { color: var(--c-primary); }
   .module-primary { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); column-gap: 32px; row-gap: 0; padding: 26px 32px 28px; align-content: start; }
   .module-primary .module-body, .module-primary .progress-layout { display: contents; }
   .module-primary .exam-banner { grid-column: 1 / -1; grid-row: 1; margin-bottom: 14px; }
-  .module-primary .module-title { grid-column: 1; grid-row: 2; font-size: 2.25rem; }
+  .module-primary .module-title { grid-column: 1; grid-row: 2; font-size: 1.625rem; }
   .module-primary .tagline { grid-column: 1; grid-row: 3; }
   .module-primary .progress-main { grid-column: 1; grid-row: 4; margin-top: 18px; gap: 14px; }
   .module-primary .assessment { grid-column: 2; grid-row: 2 / span 3; align-self: start; padding: 18px 22px; }
@@ -154,7 +154,7 @@ a { color: var(--c-primary); }
   .footer { padding: 8px 16px 24px; }
   .module-primary { padding: 20px; }
   .qa-layout { grid-template-columns: 1fr; }
-  .module-primary .module-title { font-size: 1.75rem; }
+  .module-primary .module-title { font-size: 1.5rem; }
   .progress-layout { grid-template-columns: 1fr; gap: 20px; }
   .percent-num { font-size: 2.25rem; }
   .bar { height: 22px; }
