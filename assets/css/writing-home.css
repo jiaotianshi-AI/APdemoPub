@@ -29,7 +29,6 @@
 .last-day { font-size: 1.125rem; font-weight: 800; }
 .last-kind { color: var(--c-muted); }
 .last-title { margin: 8px 0 0; font-weight: 700; word-break: break-word; }
-.last-steps { margin: 4px 0 0; color: var(--c-muted); font-size: 0.9375rem; }
 
 /* 下次写作 */
 .next-plain { margin-top: 6px; font-size: 1.125rem; font-weight: 600; }

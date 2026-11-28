@@ -257,7 +257,7 @@ function nextWriting(sch, sess, lp) {
   if (sess && sess.status === 'done') return Object.assign(later(), { doneToday: true });
   if (sess) return { kind: 'now', day: lp.day, time: sch.time_of_day, continuing: true };
   if (scheduled(lp.day)) return lp.hm >= sch.time_of_day ? { kind: 'now', day: lp.day, time: sch.time_of_day } : { kind: 'today', day: lp.day, time: sch.time_of_day, offset: 0 };
-  return later();
+  return Object.assign(later(), { notDay: true }); // 今天不是写作日
 }
 function home(res, ctx) {
   const stu = me(ctx.account);

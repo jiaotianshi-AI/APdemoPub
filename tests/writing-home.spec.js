@@ -135,7 +135,7 @@ test("首页（中文）：每日作文方框、自学视频、写作精灵；�
   await expect(page.locator("#last-box")).toContainText("已完成");
   await expect(page.locator("#last-box .score-badge")).toHaveText("评分 4 / 5");
   await expect(page.locator("#last-box .last-title")).toHaveText("Topic 1");
-  await expect(page.locator("#last-box .last-steps")).toHaveText("第 1 轮: 4");
+  await expect(page.locator("#last-box .last-steps")).toHaveCount(0); // 上次写作里不显示每轮分数
   await expect(page.locator("#last-box").getByRole("button", { name: "过往写作" })).toBeVisible();
   await expect(page.locator("#next-box").getByRole("link", { name: "马上开写" })).toBeVisible();
   expect(await page.locator("#last-box").evaluate((a) => a.getBoundingClientRect().bottom <= document.querySelector("#next-box").getBoundingClientRect().top)).toBe(true); // 上次写作在上，下次写作在下
@@ -299,4 +299,23 @@ test("首页接口：上次写作（最近一篇；今天还没写完的不算�
   h = await home(ctx);
   expect(h.last.finalScore).toBe(5);
   await ctx.dispose();
+});
+
+test("今天不是写作日：“马上开写”不能点，并说明原因（今天不是写作日）；暂停/已完成也各有说明", async ({ page }) => {
+  const { db } = require("../server/db");
+  const stu = await makeWritingStudent({ startDate: iso(10), time: "00:00" });
+  const dowToday = (new Date(iso(0) + "T12:00:00Z").getUTCDay() + 6) % 7; // 周一 = 0
+  db.prepare("UPDATE writing_schedules SET days = ? WHERE student_id = ?").run(127 & ~(1 << dowToday), stu.id);
+  await login(page, stu.username);
+  await stubThumbs(page);
+  await page.goto("/writing?lang=zh");
+  await expect(page.locator("#next-box .status-badge")).toHaveText("今天不是写作日");
+  await expect(page.locator("#start-btn")).toBeDisabled();
+  await page.goto("/writing?lang=en");
+  await expect(page.locator("#next-box .status-badge")).toHaveText("Not a writing day today");
+  // 是写作日：可以点（没到日程时间也行）
+  db.prepare("UPDATE writing_schedules SET days = 127, time_of_day = '23:59' WHERE student_id = ?").run(stu.id);
+  await page.reload();
+  await expect(page.locator("#start-btn")).toBeEnabled();
+  await expect(page.locator("#start-btn")).toHaveAttribute("href", "/writing/write");
 });

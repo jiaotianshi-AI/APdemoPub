@@ -36,6 +36,7 @@
       "w.next.now": "现在可以写作了",
       "w.next.continue": "写作进行中",
       "w.next.doneToday": "今天已完成",
+      "w.next.notDay": "今天不是写作日",
       "w.next.paused": "写作已暂停",
       "w.next.none": "还没有设置写作时间，请联系家长或老师。",
       "w.btn.start": "马上开写",
@@ -83,6 +84,7 @@
       "w.next.now": "Ready to write",
       "w.next.continue": "Writing in progress",
       "w.next.doneToday": "Done for today",
+      "w.next.notDay": "Not a writing day today",
       "w.next.paused": "Writing is paused",
       "w.next.none": "Your writing time is not set up yet. Please ask your parent or teacher.",
       "w.btn.start": "Start writing",
@@ -184,6 +186,7 @@
     var out = { text: when };
     if (next.kind === "now") { out.badge = next.continuing ? t("w.next.continue") : t("w.next.now"); out.badgeCls = "is-ready"; }
     else if (next.doneToday) { out.badge = t("w.next.doneToday"); out.badgeCls = "is-done"; }
+    else if (next.notDay) { out.badge = t("w.next.notDay"); out.badgeCls = "is-done"; }
     return out;
   }
 
@@ -193,7 +196,7 @@
     var key = p.y === cur.y ? "w.last.date" : "w.last.dateY";
     return t(key, { y: p.y, m: zh ? p.m : EN_MONTHS[p.m - 1], d: p.d });
   }
-  // 上次写作：日期、状态、评分、题目、每轮分数
+  // 上次写作：日期、状态、评分、题目
   function lastContent(h) {
     var box = el("div", "last-content");
     var it = h.last;
@@ -204,7 +207,6 @@
     if (it.kind === "done" && it.finalScore) head.appendChild(el("span", "score-badge", t("w.past.score", { s: it.finalScore })));
     box.appendChild(head);
     if (it.promptTitle) box.appendChild(el("p", "last-title", it.promptTitle));
-    if (it.scores && it.scores.length) box.appendChild(el("p", "last-steps", it.scores.map(function (s, i) { return t("w.past.round", { n: i + 1 }) + ": " + s; }).join(" → ")));
     return box;
   }
 
