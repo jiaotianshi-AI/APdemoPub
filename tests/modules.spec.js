@@ -118,11 +118,11 @@ test("T8 进度块：进度 = 本单元开始日到测试时间已走过的比�
     return [b.getBoundingClientRect().width, b.firstElementChild.getBoundingClientRect().width];
   });
   expect(Math.abs(fw / bw - 0.1)).toBeLessThanOrEqual(0.005);
-  expect(await page.locator("#mod-progress input, #mod-progress textarea, #mod-progress select").count()).toBe(0); // 卡片里有按钮（所有测试、立即测试），但没有任何输入框
+  expect(await page.locator("#mod-progress input, #mod-progress textarea, #mod-progress select").count()).toBe(0); // 卡片里有按钮（所有测试、马上测试），但没有任何输入框
   await expect(page.locator("#progress-body")).toContainText("AP Biology · Unit 2");
   await page.click('.lang-btn[data-lang="en"]');
   await expect(page.locator("#progress-body")).toContainText("AP Biology · Unit 2");
-  await expect(page.locator("#progress-body")).toContainText("Unit test time");
+  await expect(page.locator("#progress-body")).toContainText("Latest time to finish this stage test");
 });
 
 test("T8 进度的边界：开始前为 0%，测试时间之后为 100%", async ({ page }) => {
@@ -140,10 +140,10 @@ test("T9 测试时间与倒计时/到点后显示“可以开始测试”", asyn
   await page.clock.install({ time: new Date("2030-06-14T07:30:00-07:00") });
   await ready(page, "zh");
   await expect(page.locator("#progress-body")).toContainText("2030年6月15日 3:00 PM");
-  await expect(page.locator(".status-badge")).toHaveText("还有 1 天 7 小时");
+  await expect(page.locator(".status-badge")).toHaveText("你还有 1 天 7 小时，来完成这个测试");
   await page.click('.lang-btn[data-lang="en"]');
   await expect(page.locator("#progress-body")).toContainText("Jun 15, 2030, 3:00 PM");
-  await expect(page.locator(".status-badge")).toHaveText("1 d 7 h left");
+  await expect(page.locator(".status-badge")).toHaveText("You have 1 d 7 h left to complete this test");
 
   const page2 = await page.context().newPage();
   await page2.clock.install({ time: new Date("2030-06-16T08:00:00-07:00") });

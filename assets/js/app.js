@@ -391,7 +391,7 @@
     host.appendChild(layout);
   }
 
-  /* ---------- 所有测试、立即测试 ---------- */
+  /* ---------- 所有测试、马上测试 ---------- */
   var testsState = { status: "loading", data: null, loadedAt: 0 };
 
   function leftText(ms) {
@@ -517,7 +517,7 @@
     }, function () { testsState = { status: "error", data: null, loadedAt: 0 }; rebuildModal(); });
   }
 
-  // 点击“立即测试 / 开始测试”：先确认，确认后进入测试页（那里再选作答方式、开始计时）
+  // 点击“马上测试 / 开始测试”：先确认，确认后进入测试页（那里再选作答方式、开始计时）
   function startFlow(a) {
     if (modal.open) closeModal();
     var early = Date.now() < Date.parse(a.scheduledAt);
