@@ -439,7 +439,7 @@
   function renderWriting() {
     var d = wstate.data;
     var sch = d.schedule;
-    $("w-sched-hint").textContent = (d.student.gradeLabel ? "年级：" + d.student.gradeLabel.zh + "　·　" : "") + "学生所在时区：" + d.student.tzLabel.zh + (sch.configured ? "" : "　·　还没有设置写作日程，请先设置每天的时间。");
+    $("w-sched-hint").textContent = [d.student.gradeLabel ? "年级：" + d.student.gradeLabel.zh : "", sch.configured ? "" : "还没有设置写作日程，请先设置每天的时间。"].filter(Boolean).join("　·　");
     $("w-time").value = sch.time || "";
     drawDays(sch.days);
     $("w-paused").checked = sch.paused;

@@ -257,3 +257,13 @@ legend { padding: 0; font-weight: 600; }
   .score-opt { flex: 1 1 0; min-width: 0; }
   .score-opt span { width: 100%; min-width: 0; }
 }
+
+/* 手机竖屏：写作板块 */
+@media (max-width: 560px) {
+  #writing-area .panel-block { margin-top: 12px; padding: 12px; }
+  .day-row { gap: 6px; }
+  .day-opt span { min-width: 44px; padding: 0 6px; }
+  .prompt-item .p-text { flex: 1 1 100%; }
+  .prompt-item .btn { flex: 1 1 0; }
+  .prompt-item .btn + .btn { margin-left: 0; }
+}
