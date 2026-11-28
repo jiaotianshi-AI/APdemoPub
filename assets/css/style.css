@@ -243,8 +243,8 @@ a { color: var(--c-primary); }
 /* 品牌：文字 logo（橙色）与副标题（浅蓝）并排 */
 .brand { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; }
 .brand .logo { font-size: 1.5rem; font-weight: 800; color: #ea580c; letter-spacing: 0.01em; }
-.brand .section { font-size: 1.125rem; font-weight: 600; color: var(--c-primary-dark); margin-left: -6px; }
 .brand .slogan { display: inline; margin: 0; font-size: 1.2rem; font-weight: 700; color: #3b82f6; letter-spacing: 0.03em; }
 @media (max-width: 560px) { .brand .slogan { display: none; } }
-.auth-card .brand { display: block; margin-bottom: 4px; }
+.auth-card .brand { margin-bottom: 12px; }
 .auth-card .brand .logo { font-size: 1.5rem; }
+@media (max-width: 560px) { .auth-card .brand .slogan { display: inline; font-size: 1rem; } }

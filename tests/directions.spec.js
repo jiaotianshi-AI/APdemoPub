@@ -93,7 +93,7 @@ test("写作页（占位）与品牌：显示 Focus 和副标题 Focus. Steps. P
   await expect(page.locator(".slogan")).toHaveText("Focus. Steps. Progress.");
   await page.click("#logout-btn");
   await expect(page).toHaveURL(/\/login$/);
-  await expect(page.locator(".brand")).toHaveText("FocusGo");
+  await expect(page.locator(".brand")).toContainText("FocusGo");
   await expect(page.locator(".slogan")).toHaveText("Focus. Steps. Progress.");
   await expect(page.locator("body")).not.toContainText("AP 专注学习");
 });
