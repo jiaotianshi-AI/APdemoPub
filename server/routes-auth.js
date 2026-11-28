@@ -50,7 +50,7 @@ async function login(req, res) {
 
   auth.clearFailures(userKey);
   db.prepare('UPDATE accounts SET last_login_at = ? WHERE id = ?').run(new Date().toISOString(), account.id);
-  const { token, expires } = auth.createSession(account.id);
+  const { token, expires } = auth.createSession(account.id, account.type);
   sendJson(res, 200, Object.assign(me(account), { redirect: homeFor(account) }), { 'Set-Cookie': auth.sessionCookie(token, expires) });
 }
 
@@ -72,7 +72,7 @@ async function changePassword(req, res, ctx) {
   const hash = await auth.hashPassword(newPassword);
   db.prepare('UPDATE accounts SET password_hash = ?, must_change_password = 0 WHERE id = ?').run(hash, account.id);
   auth.deleteAccountSessions(account.id); // 旧会话全部作废，重新签发
-  const { token, expires } = auth.createSession(account.id);
+  const { token, expires } = auth.createSession(account.id, account.type);
   audit(account.username, 'change_password', account.username);
   sendJson(res, 200, { ok: true, redirect: roleHome(account) }, { 'Set-Cookie': auth.sessionCookie(token, expires) });
 }

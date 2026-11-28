@@ -71,8 +71,8 @@ test("督导者页：学生列表标明板块；写作学生不显示 AP 测试�
   linkSupervisor(sup.id, ap.id); linkSupervisor(sup.id, wr.id);
   await page.request.post("/api/login", { headers: H, data: { username: sup.username, password: PASSWORD } });
   await page.goto("/supervisor");
-  await expect(page.locator(".student-btn", { hasText: ap.username })).toContainText("AP 自学");
-  await expect(page.locator(".student-btn", { hasText: wr.username })).toContainText("写作");
+  await expect(page.locator(".student-btn", { hasText: ap.username })).toContainText("AP Biology");
+  await expect(page.locator(".student-btn", { hasText: wr.username })).toContainText("Writing");
   await page.locator(".student-btn", { hasText: wr.username }).click();
   await expect(page.locator("#writing-area")).toBeVisible();
   await expect(page.locator("#w-sched-title")).toHaveText("写作日程");

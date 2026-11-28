@@ -205,11 +205,11 @@
       b.type = "button";
       b.setAttribute("aria-current", s.id === state.currentId ? "true" : "false");
       b.appendChild(el("span", "name", s.username));
-      b.appendChild(el("span", "sub", (s.subject ? s.subject : "未设置学习科目") + "　·　" + (s.direction === "writing" ? "写作" : "AP 自学")));
+      // 学生按钮：第二行只放“学习科目 · 所在时区”（时区只在这里显示一次）
+      b.appendChild(el("span", "sub", (s.subject ? s.subject : "未设置学习科目") + "　·　" + s.tzLabel.zh.replace("，", " ")));
       if (s.direction === "writing" && s.promptsLeft !== null && s.promptsLeft < s.lowPrompts) b.appendChild(el("span", "badge warn", "题目不足（剩 " + s.promptsLeft + "）"));
       if (s.direction === "writing" && s.writingFlags > 0) b.appendChild(el("span", "badge flag", "安全提醒（" + s.writingFlags + "）"));
       if (s.direction === "writing" && s.missedStreak >= 3) b.appendChild(el("span", "badge warn", "连续 " + s.missedStreak + " 天未完成"));
-      b.appendChild(el("span", "sub", "时区：" + s.tzLabel.zh));
       b.addEventListener("click", function () { selectStudent(s.id); });
       li.appendChild(b);
       ul.appendChild(li);
@@ -226,7 +226,7 @@
     renderStudents();
     var s = currentStudent();
     $("student-title").textContent = s ? s.username : "测试管理";
-    $("student-sub").textContent = s ? (s.subject ? "学习科目：" + s.subject : "管理员还没有为这位学生设置学习科目") + "　·　学生所在时区：" + s.tzLabel.zh : "";
+    $("student-sub").textContent = s ? (s.subject ? "学习科目：" + s.subject : "管理员还没有为这位学生设置学习科目") : "";
     // 写作板块的学生：这里还没有对应的内容（Writing 板块开发中），不显示 AP 测试管理
     var isWriting = !!s && s.direction === "writing";
     $("new-btn").hidden = isWriting;
@@ -439,7 +439,7 @@
   function renderWriting() {
     var d = wstate.data;
     var sch = d.schedule;
-    $("w-sched-hint").textContent = (d.student.gradeLabel ? "年级：" + d.student.gradeLabel.zh + "　·　" : "") + "学生所在时区：" + d.student.tzLabel.zh + (sch.configured ? "" : "　·　还没有设置写作日程，请先设置每天的时间。");
+    $("w-sched-hint").textContent = [d.student.gradeLabel ? "年级：" + d.student.gradeLabel.zh : "", sch.configured ? "" : "还没有设置写作日程，请先设置每天的时间。"].filter(Boolean).join("　·　");
     $("w-time").value = sch.time || "";
     drawDays(sch.days);
     $("w-paused").checked = sch.paused;
@@ -589,12 +589,12 @@
       row.appendChild(ql);
       row.appendChild(el("span", "q-weight", "×" + (q.weight || 1)));
       // 回答文字：学生用屏幕输入作答时才有；纸质作答或还没作答显示 —
-      var tcell = el("span");
-      if (q.answerText === null || q.answerText === undefined) tcell.appendChild(el("span", "muted", "—"));
+      var tcell = el("span", "q-text");
+      if (q.answerText === null || q.answerText === undefined) { tcell.classList.add("is-empty"); tcell.appendChild(el("span", "muted", "—")); }
       else if (q.answerText.trim() === "") tcell.appendChild(el("span", "muted", "（没有填写）"));
       else { var snip = el("div", "answer-snippet", q.answerText); snip.title = q.answerText; tcell.appendChild(snip); }
       row.appendChild(tcell);
-      var cell = el("span");
+      var cell = el("span", "q-ans");
       if (q.answerFile) {
         var al = el("a", "file-link", shortName(q.answerFile.name));
         al.title = q.answerFile.name;
@@ -603,9 +603,9 @@
         al.rel = "noopener noreferrer";
         al.setAttribute("aria-label", q.label + " 回答：" + q.answerFile.name + "（在新标签页打开）");
         cell.appendChild(al);
-      } else cell.appendChild(el("span", "muted", "—"));
+      } else { cell.classList.add("is-empty"); cell.appendChild(el("span", "muted", "—")); }
       row.appendChild(cell);
-      row.appendChild(el("span", q.score ? "q-score" : "muted", q.score ? q.score + " / 5" : "—"));
+      row.appendChild(el("span", "q-sc " + (q.score ? "q-score" : "muted"), q.score ? q.score + " / 5" : "—"));
       wrap.appendChild(row);
     });
     return wrap;
@@ -628,8 +628,8 @@
     }
     item("测试时间", fmtWall(a.scheduledWall));
     item("测试时长", a.durationMinutes + " 分钟");
-    item("本单元开始学习", fmtDate(a.unitStartDate));
     item("汇总评分", overallText(a), a.score ? "score" : "");
+    item("本单元开始学习", fmtDate(a.unitStartDate));
     c.appendChild(meta);
     c.appendChild(questionTable(a));
     if (a.answerFiles && a.answerFiles.length) c.appendChild(fileRow("其他答题文件（旧数据）", a.answerFiles));
@@ -1073,8 +1073,8 @@
     clear(host);
     a.questionFiles.forEach(function (q) {
       var box = el("div", "grade-row");
-      function section(title) {
-        var sec = el("div", "grade-sec");
+      function section(title, inline) {
+        var sec = el("div", "grade-sec" + (inline ? " inline" : ""));
         sec.appendChild(el("div", "sec-title", title));
         var body = el("div", "sec-body");
         sec.appendChild(body);
@@ -1087,7 +1087,7 @@
       var onFileChange = function () { if (aiPart) aiPart.refresh(); };
 
       // 1 问题
-      var qb = section("问题");
+      var qb = section("问题", true);
       var ql = el("a", "file-link", shortName(q.name));
       ql.href = "/api/supervisor/files/" + q.id;
       ql.title = q.name;
@@ -1106,11 +1106,11 @@
       tb.appendChild(ta);
 
       // 3 学生 PDF 答案
-      var pb = section("学生 PDF 答案");
+      var pb = section("学生 PDF 答案", true);
       var picker = answerPicker(pb, q.answerFile, q.label, "回答 PDF", onFileChange);
 
       // 4 评分标准
-      var rb = section("评分标准");
+      var rb = section("评分标准", true);
       var rubric = answerPicker(rb, q.rubricFile, q.label, "判分标准 PDF", onFileChange);
       row.answer = picker;
       row.rubric = rubric;

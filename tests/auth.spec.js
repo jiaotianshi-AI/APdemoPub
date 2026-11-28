@@ -152,6 +152,18 @@ test.describe("首次登录必须改密码", () => {
 
 test.describe("退出登录与会话", () => {
   test.use({ storageState: ANON });
+  test("保持登录天数：督导者约 30 天，学生约 7 天", async ({ request }) => {
+    const days = async (username) => {
+      const r = await request.post("/api/login", { headers: H, data: { username, password: PASSWORD } });
+      const m = /Expires=([^;]+)/.exec(r.headers()["set-cookie"]);
+      return (Date.parse(m[1]) - Date.now()) / 86400000;
+    };
+    expect(await days("e2e_supervisor")).toBeGreaterThan(29.9);
+    expect(await days("e2e_supervisor")).toBeLessThan(30.1);
+    const stu = await days("e2e_student");
+    expect(stu).toBeGreaterThan(6.9);
+    expect(stu).toBeLessThan(7.1);
+  });
   test("退出后会话失效；会话 cookie 带 HttpOnly 和 SameSite", async ({ request }) => {
     const login = await request.post("/api/login", { headers: H, data: { username: "e2e_student", password: PASSWORD } });
     const cookie = login.headers()["set-cookie"];
