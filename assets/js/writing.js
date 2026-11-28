@@ -9,7 +9,6 @@
       noSchedule: "Your writing time has not been set up yet. Please ask your parent or teacher.",
       paused: "Writing is paused for now.",
       notDay: "No writing today. Enjoy your day!",
-      notYet: "Today's writing opens at ",
       careNote: "If anything is worrying you, please talk to a parent or a teacher you trust.",
       noPrompts: "There are no topics left. Please ask your parent or teacher to add more.",
       chooseTitle: "Pick a topic for today",
@@ -88,10 +87,6 @@
   var ui = {};
 
   function wordCount(t) { return (String(t).match(/\S+/g) || []).length; }
-  function fmtTime(hm) {
-    var h = Number(hm.slice(0, 2));
-    return (h % 12 === 0 ? 12 : h % 12) + ":" + hm.slice(3, 5) + " " + (h < 12 ? "AM" : "PM");
-  }
 
   /* ---------- 今天 ---------- */
   function load() {
@@ -106,7 +101,6 @@
     ui = {};
     var simple = { no_schedule: T.noSchedule, paused: T.paused, not_day: T.notDay, no_prompts: T.noPrompts };
     if (simple[d.state]) { host.appendChild(card(simple[d.state])); return; }
-    if (d.state === "not_yet") { host.appendChild(card(T.notYet + fmtTime(d.schedule.time) + ".")); return; }
     if (d.state === "choose") return renderChoose(host, d);
     if (d.state === "writing") return renderWriting(host, d.session);
     if (d.state === "done") return renderDone(host, d.session);

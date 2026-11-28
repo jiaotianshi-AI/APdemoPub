@@ -22,7 +22,16 @@
 .chart-dot { fill: #ffffff; stroke: var(--c-primary); stroke-width: 3; }
 .chart-empty { margin: 0; padding: 22px 12px; text-align: center; color: var(--c-muted); background: #ffffff; border: 1px dashed var(--c-primary-track); border-radius: 12px; }
 
-/* 右：下一次写作时间 */
+/* 右：上次写作、下次写作（上下两个框） */
+.daily-side { display: flex; flex-direction: column; gap: 16px; align-self: start; min-width: 0; }
+.daily-side .assessment { margin: 0; align-self: stretch; }
+.last-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 6px; }
+.last-day { font-size: 1.125rem; font-weight: 800; }
+.last-kind { color: var(--c-muted); }
+.last-title { margin: 8px 0 0; font-weight: 700; word-break: break-word; }
+.last-steps { margin: 4px 0 0; color: var(--c-muted); font-size: 0.9375rem; }
+
+/* 下次写作 */
 .next-plain { margin-top: 6px; font-size: 1.125rem; font-weight: 600; }
 .status-badge.is-done { background: #e5e7eb; color: #374151; }
 a.card-btn { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
@@ -49,4 +58,9 @@ a.card-btn { display: inline-flex; align-items: center; justify-content: center;
   .streak { font-size: 1.125rem; }
   .streak-num { font-size: 2.25rem; }
   .streak-unit { font-size: 1.125rem; }
+}
+
+@media (min-width: 900px) {
+  .module-primary .daily-side { grid-column: 2; grid-row: 2 / span 3; }
+  .module-primary .daily-side .assessment { grid-column: auto; grid-row: auto; align-self: stretch; }
 }

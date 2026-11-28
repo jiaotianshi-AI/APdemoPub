@@ -81,7 +81,6 @@ function today(res, ctx) {
   if (!sch) out.state = 'no_schedule';
   else if (sch.paused) out.state = 'paused';
   else if (!(sch.days & (1 << lp.dow))) out.state = 'not_day';
-  else if (lp.hm < sch.time_of_day) out.state = 'not_yet';
   else {
     const prompts = db.prepare('SELECT id, title, hint FROM writing_prompts WHERE student_id = ? AND used_at IS NULL ORDER BY id').all(stu.id);
     out.state = prompts.length ? 'choose' : 'no_prompts';
@@ -96,7 +95,7 @@ async function start(req, res, ctx) {
   const lp = localParts(stu.timezone, new Date());
   const sch = db.prepare('SELECT * FROM writing_schedules WHERE student_id = ?').get(stu.id);
   if (todaySession(stu, lp.day)) throw httpError(409, 'ALREADY_STARTED', '今天已经选过题目了。');
-  if (!sch || sch.paused || !(sch.days & (1 << lp.dow)) || lp.hm < sch.time_of_day) throw httpError(409, 'NOT_AVAILABLE', '现在还不能开始写作。');
+  if (!sch || sch.paused || !(sch.days & (1 << lp.dow))) throw httpError(409, 'NOT_AVAILABLE', '现在还不能开始写作。');
   if (!stu.grade) throw httpError(409, 'NO_GRADE', '管理员还没有设置你的年级，请联系管理员。');
   const p = Number.isInteger(body.promptId) ? db.prepare('SELECT * FROM writing_prompts WHERE id = ? AND student_id = ?').get(body.promptId, stu.id) : null;
   if (!p) throw httpError(404, 'NOT_FOUND', '没有这个题目。');
@@ -269,7 +268,11 @@ function home(res, ctx) {
   const rows = db.prepare("SELECT * FROM writing_sessions WHERE student_id = ? AND status = 'done' AND day >= ? AND day <= ? ORDER BY day").all(stu.id, from, lp.day);
   const series = rows.map((r) => ({ day: r.day, score: sessionView(r).finalScore })).filter((x) => x.score);
   const total = db.prepare("SELECT COUNT(*) AS n FROM writing_sessions WHERE student_id = ? AND status = 'done'").get(stu.id).n;
-  sendJson(res, 200, { day: lp.day, timezone: stu.timezone, streak: streakOf(stu.id, sch, lp.day), totalDone: total, series, next: nextWriting(sch, sess, lp) });
+  // 上次写作：最近的一篇（今天还没写完的不算，它是“下次写作”）
+  const lastRow = db.prepare("SELECT * FROM writing_sessions WHERE student_id = ? AND NOT (day = ? AND status != 'done') ORDER BY day DESC LIMIT 1").get(stu.id, lp.day);
+  let last = null;
+  if (lastRow) { const v = sessionView(lastRow); last = { day: lastRow.day, kind: lastRow.status === 'done' ? 'done' : 'unfinished', promptTitle: lastRow.prompt_title, finalScore: v.finalScore, scores: v.turns.map((t) => t.score) }; }
+  sendJson(res, 200, { day: lp.day, timezone: stu.timezone, last, streak: streakOf(stu.id, sch, lp.day), totalDone: total, series, next: nextWriting(sch, sess, lp) });
 }
 
 // 过往记录：已完成的、没写完的（最多 60 条），以及最近 14 天内漏写的（按日程推算）
